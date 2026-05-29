@@ -3,6 +3,7 @@ package edgegw
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -45,6 +46,15 @@ func (e *EdgeRelay) handleEgress(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Auth gate: this endpoint makes the edge perform arbitrary outbound HTTP,
+	// so it is a powerful SSRF/credential-relay primitive. It is disabled unless
+	// an internal key is configured, and requires that key (the center holds the
+	// matching secret; in production this rides on mTLS too).
+	if e.internalKey == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Internal-Key")), []byte(e.internalKey)) != 1 {
+		writeJSONError(w, http.StatusForbidden, "forbidden", "egress not permitted")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxEgressResponseBytes)
 	var req EgressRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "decode egress request: "+err.Error())
@@ -96,7 +106,7 @@ func (e *EdgeRelay) handleEgress(w http.ResponseWriter, r *http.Request) {
 // EgressVia asks the edge at edgeBaseURL to perform req from its stable IP and
 // returns the captured response. The center uses this to run OAuth refresh (and
 // any other account-bound control call) through the account's home edge.
-func EgressVia(ctx context.Context, httpClient *http.Client, edgeBaseURL string, req EgressRequest) (*EgressResponse, error) {
+func EgressVia(ctx context.Context, httpClient *http.Client, edgeBaseURL, internalKey string, req EgressRequest) (*EgressResponse, error) {
 	buf, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -106,6 +116,7 @@ func EgressVia(ctx context.Context, httpClient *http.Client, edgeBaseURL string,
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Internal-Key", internalKey)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err

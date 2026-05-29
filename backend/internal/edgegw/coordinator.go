@@ -228,6 +228,11 @@ func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleRe
 			prev.Duplicate = true
 			return &prev, nil
 		}
+		// Reserve the requestID under the lock so a concurrent duplicate Settle
+		// short-circuits BEFORE any side effects (usage/admission/quota), closing
+		// the check-then-act race that would otherwise double-charge and
+		// double-release.
+		co.settled[req.RequestID] = SettleResult{RequestID: req.RequestID, Accepted: true}
 		co.mu.Unlock()
 	}
 

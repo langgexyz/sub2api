@@ -21,21 +21,28 @@ import (
 type EdgeRelay struct {
 	edgeID      string
 	enrollKey   string
+	internalKey string
 	centerURL   string
 	centerHTTP  *http.Client
 	upstream    *http.Client
 	maxFailover int
+	maxBodyByte int64
 	now         Clock
 }
 
 // EdgeConfig configures an EdgeRelay.
 type EdgeConfig struct {
-	EdgeID      string
-	EnrollKey   string // presented to the center at registration
+	EdgeID    string
+	EnrollKey string // presented to the center at registration
+	// InternalKey gates /internal/egress (center-only control egress). When
+	// empty, /internal/egress is disabled (denied) -- it must be explicitly
+	// enabled with a shared secret to avoid an SSRF/credential-relay hole.
+	InternalKey string
 	CenterURL   string // base URL of the center, e.g. http://center:9000
 	CenterHTTP  *http.Client
 	Upstream    *http.Client
 	MaxFailover int
+	MaxBodyByte int64 // max client request body; 0 => 32 MiB default
 	Now         Clock
 }
 
@@ -57,13 +64,19 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	if now == nil {
 		now = time.Now
 	}
+	maxBody := cfg.MaxBodyByte
+	if maxBody <= 0 {
+		maxBody = 32 << 20 // 32 MiB
+	}
 	return &EdgeRelay{
 		edgeID:      cfg.EdgeID,
 		enrollKey:   cfg.EnrollKey,
+		internalKey: cfg.InternalKey,
 		centerURL:   strings.TrimRight(cfg.CenterURL, "/"),
 		centerHTTP:  ch,
 		upstream:    up,
 		maxFailover: mf,
+		maxBodyByte: maxBody,
 		now:         now,
 	}
 }
@@ -88,9 +101,10 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(r.Body)
+	defer func() { _ = r.Body.Close() }()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, e.maxBodyByte))
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid_request", "read body: "+err.Error())
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "invalid_request", "read body: "+err.Error())
 		return
 	}
 

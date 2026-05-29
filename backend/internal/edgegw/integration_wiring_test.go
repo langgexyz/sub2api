@@ -28,10 +28,15 @@ func TestEgressViaEdge(t *testing.T) {
 	}))
 	defer target.Close()
 
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{EdgeID: "edge-1", CenterURL: "http://unused"}).Handler())
+	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{EdgeID: "edge-1", CenterURL: "http://unused", InternalKey: "secret"}).Handler())
 	defer edge.Close()
 
-	resp, err := EgressVia(context.Background(), http.DefaultClient, edge.URL, EgressRequest{
+	// Wrong/missing internal key is rejected (SSRF gate).
+	if _, err := EgressVia(context.Background(), http.DefaultClient, edge.URL, "wrong", EgressRequest{Method: http.MethodPost, URL: target.URL}); err == nil {
+		t.Fatalf("egress with wrong internal key must be rejected")
+	}
+
+	resp, err := EgressVia(context.Background(), http.DefaultClient, edge.URL, "secret", EgressRequest{
 		Method: http.MethodPost,
 		URL:    target.URL + "/oauth/token",
 		Header: map[string]string{"Authorization": "Bearer refresh-tok"},
