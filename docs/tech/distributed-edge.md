@@ -164,15 +164,19 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 原则:每项都接到 sub2api 已有能力上,`EdgeCenterHandler` / edge 只做薄扩展;OAuth 流程、加密、定价、并发 Redis 槽一律复用现成的。固定 key 类(MiMo)已完成,以下基本只属于 OAuth-refresh 类 + 两个 class-agnostic 加固。
 
-### P0 — OAuth-refresh 账号类支持(让 edge 也能服务 Claude/Codex/Gemini OAuth 账号)
-- 复用:Account 凭据存储 + AES 解密;sub2api 现成的 token provider —— `ClaudeTokenProvider` / `AntigravityTokenProvider` / OpenAI·Gemini OAuth provider 的 `GetAccessToken(ctx, account)`(过期自动 refresh);`GatewayService.buildUpstreamRequest` 里 OAuth 的 `Authorization: Bearer` + anthropic-beta / Claude CLI 头那段逻辑。
-- 扩展点:`handler/edge_center_handler.go: candidateFromAccount` 增加非-apikey 分支 —— 调 token provider 取当前有效 access token 填 `Candidate.LeaseToken`,`AuthScheme` 设 Bearer + 必要 beta 头;把 buildUpstreamRequest 的头构造抽成可共享函数,edge 复用。
-- 不重造:OAuth 授权/refresh/token 持久化全走 sub2api。
+### P0 — OAuth 账号类支持(让 edge 也能服务 Claude/Codex/Gemini OAuth 账号)
 
-### P1 — refresh 经 home edge 出口(仅 OAuth 类需要;IP 一致)
-- 复用:已建的 edge `/internal/egress` 出口原语(`internalKey` 已门控)+ sub2api 的 `tokenRefreshService`。
-- 扩展点:给 token provider/refresh 注入一个"经账号 home edge 的 /internal/egress 发出"的 http transport hook,使 refresh 与数据面同 IP(中心仍是单写者)。
-- 注:固定 key 类不涉及;是否强制取决于各 provider 是否校验 refresh 来源 IP(可先按需开启)。
+**边界:edge 是纯消费方,永不刷新 token。OAuth 支持是纯 center 侧改动,edge 零改动。** edge 已经通用——拿到 `Candidate.LeaseToken` + `AuthScheme` 就 apply,token 来自固定 key 还是 OAuth 它无感。
+
+- 复用:Account 凭据 + AES 解密;sub2api 现成 token provider —— `ClaudeTokenProvider` / `AntigravityTokenProvider` / OpenAI·Gemini OAuth provider 的 `GetAccessToken(ctx, account)`(过期它自己 refresh)。
+- 扩展点(只在 center):`handler/edge_center_handler.go: candidateFromAccount` 加非-apikey 分支 —— 调 token provider 取当前有效 access token 填 `Candidate.LeaseToken`,`AuthScheme` 设 Bearer,必要的 anthropic-beta / Claude CLI 头放进 `AuthScheme.Extra`(edge 照常 apply,不需懂语义)。
+- 不重造:OAuth 授权 / refresh / token 持久化全在 sub2api;edge 不碰。
+
+### P1 — center 的 refresh 经 home edge 出口(仅 OAuth 类、可选)
+- 边界重申:**刷新逻辑在 center,不在 edge**;edge 只是出借自己的稳定 IP 作出口代理。
+- 复用:已建的 edge `/internal/egress` 出口原语(`internalKey` 已门控)+ sub2api 的 token provider / `tokenRefreshService`。
+- 扩展点(只在 center):给 token provider 的刷新 HTTP 注入"经账号 home edge 的 /internal/egress 发出"的 transport hook,使 refresh 与数据面同 IP(中心仍是单写者)。
+- 注:固定 key 类不涉及;是否强制取决于各 provider 是否校验 refresh 来源 IP,可先按需开启。
 
 ### P1 — Settle 记用量/计费(复用 gateway 同一条记账)
 - 复用:`UsageRecordWorkerPool` + gateway 路径里 `submitUsageRecordTask` 构造的 `usageService` 用量任务(定价/缓存/写聚合 flusher 全现成)。
