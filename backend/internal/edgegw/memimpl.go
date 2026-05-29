@@ -110,14 +110,18 @@ func (r *MemRegistry) releaseLoad(accountID string) {
 	}
 }
 
-// Select implements Scheduler: filter by api key + model, rank by least load.
+// Select implements Scheduler: filter by api key + model, then rank by
+// edge-affinity first (accounts homed on the requesting edge come first, so an
+// edge serves its own accounts and the upstream call egresses from that edge's
+// stable IP) and least-load second. Cross-edge candidates remain as failover.
 func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	type scored struct {
-		acc  AccountConfig
-		load int64
+		acc      AccountConfig
+		load     int64
+		affinity int // 0 = homed on the requesting edge, 1 = elsewhere
 	}
 	var pool []scored
 	for _, a := range r.accounts {
@@ -125,14 +129,24 @@ func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, 
 			continue
 		}
 		load := atomic.LoadInt64(r.inflight[a.ID])
-		pool = append(pool, scored{acc: a, load: load})
+		affinity := 1
+		if req.EdgeID != "" && a.HomeEdgeID == req.EdgeID {
+			affinity = 0
+		}
+		pool = append(pool, scored{acc: a, load: load, affinity: affinity})
 	}
 	if len(pool) == 0 {
 		return nil, ErrNoAccount
 	}
-	// Stable least-loaded-first ordering (simple insertion sort; pools are tiny).
+	// Stable sort by (affinity asc, load asc) via insertion sort (pools are tiny).
+	less := func(a, b scored) bool {
+		if a.affinity != b.affinity {
+			return a.affinity < b.affinity
+		}
+		return a.load < b.load
+	}
 	for i := 1; i < len(pool); i++ {
-		for j := i; j > 0 && pool[j].load < pool[j-1].load; j-- {
+		for j := i; j > 0 && less(pool[j], pool[j-1]); j-- {
 			pool[j], pool[j-1] = pool[j-1], pool[j]
 		}
 	}

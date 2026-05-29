@@ -20,6 +20,7 @@ import (
 // reports usage via Settle. It carries no durable state.
 type EdgeRelay struct {
 	edgeID      string
+	enrollKey   string
 	centerURL   string
 	centerHTTP  *http.Client
 	upstream    *http.Client
@@ -30,6 +31,7 @@ type EdgeRelay struct {
 // EdgeConfig configures an EdgeRelay.
 type EdgeConfig struct {
 	EdgeID      string
+	EnrollKey   string // presented to the center at registration
 	CenterURL   string // base URL of the center, e.g. http://center:9000
 	CenterHTTP  *http.Client
 	Upstream    *http.Client
@@ -57,6 +59,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	}
 	return &EdgeRelay{
 		edgeID:      cfg.EdgeID,
+		enrollKey:   cfg.EnrollKey,
 		centerURL:   strings.TrimRight(cfg.CenterURL, "/"),
 		centerHTTP:  ch,
 		upstream:    up,
@@ -73,6 +76,9 @@ func (e *EdgeRelay) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	// Control-plane egress: the center runs account-bound outbound calls (e.g.
+	// OAuth refresh) through this edge so they leave from the edge's stable IP.
+	mux.HandleFunc("/internal/egress", e.handleEgress)
 	mux.HandleFunc("/", e.relay)
 	return mux
 }
@@ -126,6 +132,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	// 3. Settle: report usage so the center reconciles quota + releases the slot.
 	settle := SettleRequest{
 		RequestID:    requestID,
+		APIKey:       apiKey,
 		AccountID:    used.AccountID,
 		SlotID:       lease.SlotID,
 		SessionHash:  sessionHash,

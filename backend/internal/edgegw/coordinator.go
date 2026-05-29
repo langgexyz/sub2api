@@ -63,16 +63,28 @@ type Coordinator struct {
 	sticky    StickyStore
 	usage     UsageSink
 	minter    TokenMinter
+	quota     QuotaReserver
 
-	leaseTTL time.Duration
-	now      Clock
+	leaseTTL      time.Duration
+	leaseEstimate float64
+	costOf        func(SettleRequest) float64
+	now           Clock
 
 	mu      sync.Mutex
 	settled map[string]SettleResult // requestID -> result, for idempotency
 }
 
-// Config configures a Coordinator. Billing, StickyStore and TokenMinter are
-// optional; nil disables that step (no precheck / no stickiness / raw token).
+// QuotaReserver pre-debits an estimated cost at Lease and reconciles the actual
+// cost at Settle, preventing double-spend across concurrent edges. Satisfied by
+// internal/edgegw/quota.Ledger; modeled as an interface so the coordinator
+// stays decoupled and fake-testable.
+type QuotaReserver interface {
+	Reserve(apiKey, requestID string, estimate float64) error
+	Reconcile(apiKey, requestID string, actual float64) (float64, error)
+}
+
+// Config configures a Coordinator. Billing, StickyStore, TokenMinter and Quota
+// are optional; nil disables that step.
 type Config struct {
 	Admission Admission
 	Billing   Billing
@@ -80,8 +92,14 @@ type Config struct {
 	Sticky    StickyStore
 	Usage     UsageSink
 	Minter    TokenMinter
-	LeaseTTL  time.Duration
-	Now       Clock
+	Quota     QuotaReserver
+	// LeaseEstimate is the cost pre-debited at Lease when Quota is set.
+	LeaseEstimate float64
+	// CostFunc derives the actual cost reconciled at Settle. Defaults to
+	// (input+output)/1000.
+	CostFunc func(SettleRequest) float64
+	LeaseTTL time.Duration
+	Now      Clock
 }
 
 // NewCoordinator builds a Coordinator. Admission, Scheduler and Usage are
@@ -95,16 +113,25 @@ func NewCoordinator(cfg Config) *Coordinator {
 	if now == nil {
 		now = time.Now
 	}
+	costOf := cfg.CostFunc
+	if costOf == nil {
+		costOf = func(s SettleRequest) float64 {
+			return float64(s.InputTokens+s.OutputTokens) / 1000.0
+		}
+	}
 	return &Coordinator{
-		admission: cfg.Admission,
-		billing:   cfg.Billing,
-		scheduler: cfg.Scheduler,
-		sticky:    cfg.Sticky,
-		usage:     cfg.Usage,
-		minter:    cfg.Minter,
-		leaseTTL:  ttl,
-		now:       now,
-		settled:   make(map[string]SettleResult),
+		admission:     cfg.Admission,
+		billing:       cfg.Billing,
+		scheduler:     cfg.Scheduler,
+		sticky:        cfg.Sticky,
+		usage:         cfg.Usage,
+		minter:        cfg.Minter,
+		quota:         cfg.Quota,
+		leaseTTL:      ttl,
+		leaseEstimate: cfg.LeaseEstimate,
+		costOf:        costOf,
+		now:           now,
+		settled:       make(map[string]SettleResult),
 	}
 }
 
@@ -121,11 +148,17 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 	if err != nil {
 		return nil, err
 	}
-	// Release the slot if we bail out before returning a successful lease.
+	// Release the slot (and refund any quota reservation) if we bail out before
+	// returning a successful lease.
 	ok := false
+	reserved := false
 	defer func() {
 		if !ok {
 			co.admission.Release(ctx, slotID)
+			if reserved {
+				// Refund the full pre-debit: no lease was granted.
+				_, _ = co.quota.Reconcile(req.APIKey, req.RequestID, 0)
+			}
 		}
 	}()
 
@@ -134,6 +167,14 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 		if err := co.billing.CheckEligibility(ctx, req.APIKey, req.Model); err != nil {
 			return nil, err
 		}
+	}
+
+	// 2b. Quota pre-debit (prevents double-spend across concurrent edges).
+	if co.quota != nil && req.RequestID != "" {
+		if err := co.quota.Reserve(req.APIKey, req.RequestID, co.leaseEstimate); err != nil {
+			return nil, ErrBillingIneligible
+		}
+		reserved = true
 	}
 
 	// 3. Scheduling: ranked candidates.
@@ -198,6 +239,12 @@ func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleRe
 	// Release the admission slot exactly once.
 	if req.SlotID != "" {
 		co.admission.Release(ctx, req.SlotID)
+	}
+
+	// Reconcile the quota pre-debit against the actual cost (refund the
+	// overestimate or charge the extra). Idempotent on requestID.
+	if co.quota != nil && req.RequestID != "" {
+		_, _ = co.quota.Reconcile(req.APIKey, req.RequestID, co.costOf(req))
 	}
 
 	// Keep the conversation pinned to the account that actually served it.

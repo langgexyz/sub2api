@@ -71,6 +71,7 @@ func (r *LeaseResult) Primary() (Candidate, bool) {
 // SettleRequest reports the outcome of a forwarded request back to the center.
 type SettleRequest struct {
 	RequestID    string `json:"request_id"`
+	APIKey       string `json:"api_key"`
 	AccountID    string `json:"account_id"`
 	SlotID       string `json:"slot_id"`
 	SessionHash  string `json:"session_hash"`

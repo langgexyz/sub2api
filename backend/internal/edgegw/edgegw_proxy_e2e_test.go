@@ -83,7 +83,7 @@ func TestE2E_EgressThroughProxy(t *testing.T) {
 		Minter:    NewHMACMinter(registry, []byte("s"), fixedClock()),
 		Now:       fixedClock(),
 	})
-	center := httptest.NewServer(NewCenterServer(coord, registry).Handler())
+	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
 	defer center.Close()
 
 	// Edge whose upstream client egresses through the recording proxy.

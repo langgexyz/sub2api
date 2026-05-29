@@ -109,7 +109,7 @@ func newTestSystem(accounts []AccountConfig, maxPerKey int) *testSystem {
 		Minter:    minter,
 		Now:       fixedClock(),
 	})
-	center := httptest.NewServer(NewCenterServer(coord, registry).Handler())
+	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
 	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{
 		EdgeID:    "edge-test",
 		CenterURL: center.URL,

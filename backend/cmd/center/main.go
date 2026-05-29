@@ -13,9 +13,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgetls"
 )
 
 func main() {
@@ -24,6 +27,11 @@ func main() {
 	maxPerKey := flag.Int("max-per-key", 0, "max concurrent in-flight leases per api key (0 = unlimited)")
 	leaseTTL := flag.Duration("lease-ttl", 2*time.Minute, "lease token TTL")
 	secret := flag.String("token-secret", "dev-secret-change-me", "HMAC secret for minting lease tokens")
+	edgeTTL := flag.Duration("edge-ttl", 30*time.Second, "edge liveness window (no heartbeat within this = not live)")
+	tlsCert := flag.String("tls-cert", "", "server cert PEM for mTLS to edges (enables mTLS)")
+	tlsKey := flag.String("tls-key", "", "server key PEM for mTLS to edges")
+	tlsClientCA := flag.String("tls-client-ca", "", "CA PEM that signs edge client certs (mTLS)")
+	enrollKeys := flag.String("enroll-keys", "", "comma-separated valid edge enroll keys (empty = accept any)")
 	flag.Parse()
 
 	accounts, err := loadAccounts(*accountsPath)
@@ -35,6 +43,7 @@ func main() {
 	}
 
 	registry := edgegw.NewMemRegistry(accounts)
+	edges := edgereg.New(*edgeTTL, time.Now)
 	coord := edgegw.NewCoordinator(edgegw.Config{
 		Admission: edgegw.NewMemAdmission(*maxPerKey),
 		Scheduler: registry,
@@ -43,17 +52,45 @@ func main() {
 		Minter:    edgegw.NewHMACMinter(registry, []byte(*secret), time.Now),
 		LeaseTTL:  *leaseTTL,
 	})
-	server := edgegw.NewCenterServer(coord, registry)
+	server := edgegw.NewCenterServer(coord, registry, edges)
+	if *enrollKeys != "" {
+		server.SetEnrollKeys(splitCSV(*enrollKeys))
+	}
 
-	log.Printf("center: listening on %s with %d account(s), max-per-key=%d", *addr, len(accounts), *maxPerKey)
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           server.Handler(),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
+
+	if *tlsCert != "" {
+		tlsCfg, err := edgetls.ServerTLSConfig(*tlsCert, *tlsKey, *tlsClientCA)
+		if err != nil {
+			log.Fatalf("center: mTLS config: %v", err)
+		}
+		srv.TLSConfig = tlsCfg
+		log.Printf("center: listening on %s (mTLS) with %d account(s), max-per-key=%d", *addr, len(accounts), *maxPerKey)
+		if err := srv.ListenAndServeTLS("", ""); err != nil {
+			log.Fatalf("center: %v", err)
+		}
+		return
+	}
+
+	log.Printf("center: listening on %s with %d account(s), max-per-key=%d", *addr, len(accounts), *maxPerKey)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("center: %v", err)
 	}
+}
+
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func loadAccounts(path string) ([]edgegw.AccountConfig, error) {
