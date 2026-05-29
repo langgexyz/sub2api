@@ -150,6 +150,16 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 测试覆盖(`go test -tags=unit -race ./internal/edgegw/`,34 个):provider 单测(各平台 prepare + 鉴权 + 各 usage 形态 + SSE 分片写)、egress 代理透传、并发无槽泄漏(100 并发)、稳定性(300 顺序)、网络波动 failover(5xx + 连接 drop + 延迟,全部成功且无泄漏)、全挂干净失败无泄漏。
 
+## 10.8 账号两类:固定 Key vs OAuth-refresh(决定要不要 refresh-via-edge)
+
+上游账号按凭据生命周期分两类,**只有第二类才需要第 5 节的 refresh-via-home-edge 机制**:
+
+1. **固定 Key Provider(如 MiMo / 任意静态 API-key 上游)**:一个静态 api_key,**没有 refresh_token**。中心 `EdgeCenterHandler.candidateFromAccount` 的 `AccountTypeAPIKey` 分支已完整覆盖:`GetCredential("api_key")` + `x-api-key`/`anthropic-version` 鉴权 + `GetBaseURL()` + 模型映射。**唯一在乎的 IP 是数据面请求的出口**——而它本就从 edge 出。所以这类**不涉及 refresh,也不需要 refresh-via-edge**;部署形态已端到端验证(MiMo,real sub2api,见 10.6 实测)。
+
+2. **OAuth-refresh Provider(Claude/Codex/Gemini OAuth)**:有 refresh_token、对来源 IP 敏感。**仅这类**需要:edge 侧 OAuth 账号类型支持(当前 `candidateFromAccount` 对非 apikey 类型返回 unsupported)+ 中心刷新经 home edge 出口(第 5 节 + `/internal/egress`),保证 refresh 与数据面同 IP。
+
+结论:固定 Key 类(MiMo)= 已完成、零残留;refresh 相关的所有复杂度只属于 OAuth 类,是独立的后续工作。
+
 ## 11. 待办 / 待定
 
 1. 验证各 provider 的 OAuth refresh 是否校验来源 IP、refresh token 是否轮换(决定第 5 节 refresh 是否强制走 home edge)。
