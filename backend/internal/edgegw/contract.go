@@ -34,8 +34,10 @@ type LeaseRequest struct {
 type Candidate struct {
 	AccountID       string            `json:"account_id"`
 	HomeEdgeID      string            `json:"home_edge_id"`
+	Platform        string            `json:"platform"` // selects the edge-side Provider (anthropic/openai/gemini/antigravity)
 	UpstreamBaseURL string            `json:"upstream_base_url"`
 	LeaseToken      string            `json:"lease_token"` // short-lived; edge uses then discards
+	AuthScheme      AuthScheme        `json:"auth_scheme"` // how the edge presents the token upstream
 	ModelMapping    map[string]string `json:"model_mapping"`
 }
 

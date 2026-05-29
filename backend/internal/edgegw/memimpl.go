@@ -28,6 +28,7 @@ type AccountConfig struct {
 	Models          []string          `json:"models,omitempty"`          // supported requested models; empty = all
 	MaxConcurrency  int               `json:"max_concurrency,omitempty"` // per-account concurrency cap; 0 = unlimited
 	GroupAPIKeys    []string          `json:"group_api_keys,omitempty"`  // api keys allowed to use this account; empty = all
+	AuthScheme      AuthScheme        `json:"auth_scheme,omitempty"`     // how the edge presents the token upstream
 }
 
 func (a AccountConfig) supportsModel(model string) bool {
@@ -141,7 +142,9 @@ func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, 
 		candidates = append(candidates, Candidate{
 			AccountID:       s.acc.ID,
 			HomeEdgeID:      s.acc.HomeEdgeID,
+			Platform:        s.acc.Platform,
 			UpstreamBaseURL: s.acc.UpstreamBaseURL,
+			AuthScheme:      s.acc.AuthScheme,
 			ModelMapping:    s.acc.ModelMapping,
 		})
 	}

@@ -153,21 +153,25 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 	if limit > len(lease.Candidates) {
 		limit = len(lease.Candidates)
 	}
+	_, stream := parseModelStream(body)
 	for i := 0; i < limit; i++ {
 		cand := lease.Candidates[i]
 		used = cand
+		provider := ProviderFor(cand.Platform)
 
-		upstreamBody := rewriteModel(body, cand.MappedModel(reqModel))
+		// Provider-aware request prep: model mapping lands in the body
+		// (Anthropic/OpenAI) or the URL path (Gemini).
+		upstreamPath, upstreamBody := provider.PrepareRequest(r.URL.Path, body, cand.MappedModel(reqModel))
 		upReq, buildErr := http.NewRequestWithContext(r.Context(), http.MethodPost,
-			cand.UpstreamBaseURL+r.URL.Path, bytes.NewReader(upstreamBody))
+			cand.UpstreamBaseURL+upstreamPath, bytes.NewReader(upstreamBody))
 		if buildErr != nil {
 			err = buildErr
 			continue
 		}
 		copyForwardHeaders(r.Header, upReq.Header)
-		// The edge presents the leased credential. UpstreamBearer unwraps the
-		// minted envelope to the real upstream token.
-		upReq.Header.Set("Authorization", "Bearer "+UpstreamBearer(cand.LeaseToken))
+		// Present the leased credential per the account's auth scheme.
+		// UpstreamBearer unwraps the minted envelope to the real upstream token.
+		cand.AuthScheme.apply(upReq, UpstreamBearer(cand.LeaseToken))
 		upReq.Header.Set("X-Edge-Id", e.edgeID)
 
 		resp, doErr := e.upstream.Do(upReq)
@@ -184,13 +188,19 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		}
 
 		code = resp.StatusCode
-		inTok, outTok = readUsageHeaders(resp.Header)
-		// Relay status + headers, then stream the body to the client.
+		// Tee the response through the provider's usage parser while streaming
+		// it to the client, then fall back to usage headers if the provider
+		// reported nothing (keeps header-only upstreams working).
+		parser := provider.NewUsageParser(stream)
 		copyResponseHeaders(resp.Header, w.Header())
 		w.WriteHeader(resp.StatusCode)
 		streamed = true
-		_, copyErr := io.Copy(newFlushWriter(w), resp.Body)
+		_, copyErr := io.Copy(newFlushWriter(w), io.TeeReader(resp.Body, parser))
 		_ = resp.Body.Close()
+		inTok, outTok = parser.Usage()
+		if inTok == 0 && outTok == 0 {
+			inTok, outTok = readUsageHeaders(resp.Header)
+		}
 		if copyErr != nil {
 			err = copyErr
 			return used, code, inTok, outTok, streamed, err
@@ -310,10 +320,17 @@ func readUsageHeaders(h http.Header) (in, out int) {
 	return in, out
 }
 
+// hopByHopHeaders are dropped when forwarding upstream. Besides the standard
+// hop-by-hop set, this includes every client-side credential header: the edge
+// authenticates the client to the CENTER (sub2api API key), and authenticates
+// itself to the UPSTREAM with the leased provider token. The client's sub2api
+// credential must never reach the provider.
 var hopByHopHeaders = map[string]struct{}{
 	"Connection": {}, "Keep-Alive": {}, "Proxy-Authenticate": {},
 	"Proxy-Authorization": {}, "Te": {}, "Trailer": {}, "Transfer-Encoding": {},
-	"Upgrade": {}, "Authorization": {}, "Host": {}, "Content-Length": {},
+	"Upgrade": {}, "Host": {}, "Content-Length": {},
+	// client credentials — stripped, replaced by the leased provider auth:
+	"Authorization": {}, "X-Api-Key": {}, "X-Goog-Api-Key": {}, "Api-Key": {},
 }
 
 func copyForwardHeaders(src, dst http.Header) {

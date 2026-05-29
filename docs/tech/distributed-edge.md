@@ -131,6 +131,25 @@ backend/scripts/edgegw-demo.sh
 
 尚未做(明确的后续):mTLS(当前 PoC 用明文 HTTP,token envelope + 签名结构已就位)、Redis 背书的 admission、中心 Lease/Settle 背靠真实 `GatewayService`/`BillingCacheService`、refresh 经 home edge 出口的执行、edge 健康探测。
 
+## 10.6 edge = sub2api 的透明中转(对外契约)
+
+edge 对外提供的就是 sub2api 网关本身的能力:client 把 base URL 从中心改成某个 edge,**用同一把 sub2api API key、同一套路径**(`/v1/messages` `/v1/chat/completions` `/v1/responses` `/v1beta/...` `/antigravity/...`)发请求,行为与直连中心一致 —— edge 是 drop-in 的中转节点。
+
+这带出一条必须守死的**双凭据边界**:
+- **入站** = client 的 sub2api API key。edge 把它交给中心 `Lease` 做鉴权 + 调度,**不转发给上游**。
+- **出站** = 中心 lease 出的 provider token,按账号 `AuthScheme` 应用到上游请求。
+
+edge 转发上游前**剥掉 client 的所有凭据头**(`Authorization` / `x-api-key` / `x-goog-api-key` / `api-key`),换成 leased provider 凭据。client 的 sub2api key 永不到达上游 provider。(实现:`edge_relay.go` 的 `hopByHopHeaders` 剥离 + `AuthScheme.apply` 重新注入;测试见 provider/stress 用例。)
+
+## 10.7 多 Provider 支持(edgegw Provider 抽象)
+
+edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Candidate` 上带 `Platform` + `AuthScheme` 数据驱动:
+- **鉴权**:`AuthScheme`{Header/Prefix/QueryParam/Extra} 表达 Anthropic(`x-api-key` + `anthropic-version`)、OpenAI(`Authorization: Bearer`)、Gemini(`?key=`)等;零值默认 Bearer。
+- **模型映射落点**:Anthropic/OpenAI 改 body `model`;Gemini 改 URL path `models/<model>:action`;Antigravity 按 path 形态二选一。
+- **用量解析**:`UsageParser` 流式(SSE 逐行)/非流式(JSON)统一抽取 —— 兼容 Anthropic(`usage.input/output_tokens`,含 `message`/`response` 嵌套)、OpenAI chat(`prompt/completion_tokens`)、OpenAI responses(`response.usage`)、Gemini(`usageMetadata.promptTokenCount/candidatesTokenCount`);解析不到时回退响应头。
+
+测试覆盖(`go test -tags=unit -race ./internal/edgegw/`,34 个):provider 单测(各平台 prepare + 鉴权 + 各 usage 形态 + SSE 分片写)、egress 代理透传、并发无槽泄漏(100 并发)、稳定性(300 顺序)、网络波动 failover(5xx + 连接 drop + 延迟,全部成功且无泄漏)、全挂干净失败无泄漏。
+
 ## 11. 待办 / 待定
 
 1. 验证各 provider 的 OAuth refresh 是否校验来源 IP、refresh token 是否轮换(决定第 5 节 refresh 是否强制走 home edge)。
