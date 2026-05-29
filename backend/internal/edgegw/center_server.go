@@ -21,6 +21,14 @@ type CenterServer struct {
 	mu         sync.Mutex
 	slotAccts  map[string]string   // slotID -> accountID acquired at lease, released at settle
 	enrollKeys map[string]struct{} // valid edge enroll keys; empty = accept any (dev)
+
+	// Config the center issues to edges at enroll time (so edges need almost no
+	// local flags). Guarded by mu.
+	issuedCenterURL   string
+	issuedHeartbeat   int
+	issuedMaxFailover int
+	issuedPlatforms   []string
+	enrollSeq         int64
 }
 
 // SetEnrollKeys restricts edge registration to the given enroll keys. An empty
@@ -67,6 +75,7 @@ func (s *CenterServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("/v1/lease", s.handleLease)
 	mux.HandleFunc("/v1/settle", s.handleSettle)
+	mux.HandleFunc("/v1/enroll", s.handleEnroll)
 	mux.HandleFunc("/v1/register", s.handleRegister)
 	mux.HandleFunc("/v1/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("/v1/edges", s.handleEdges)
@@ -104,7 +113,12 @@ func (s *CenterServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "enroll_denied", "invalid enroll key")
 		return
 	}
-	s.edges.Register(req.EdgeID, req.EgressIP, req.Platforms)
+	egressIP := req.EgressIP
+	if egressIP == "" {
+		// Auto-detect from the connection so the edge need not configure it.
+		egressIP = clientIPFromRemoteAddr(r.RemoteAddr)
+	}
+	s.edges.Register(req.EdgeID, egressIP, req.Platforms)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

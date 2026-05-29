@@ -32,6 +32,10 @@ func main() {
 	tlsKey := flag.String("tls-key", "", "server key PEM for mTLS to edges")
 	tlsClientCA := flag.String("tls-client-ca", "", "CA PEM that signs edge client certs (mTLS)")
 	enrollKeys := flag.String("enroll-keys", "", "comma-separated valid edge enroll keys (empty = accept any)")
+	publicURL := flag.String("public-url", "", "center URL issued to edges at enroll (default: derived from -addr)")
+	issuePlatforms := flag.String("issue-platforms", "", "comma-separated platforms issued to enrolling edges")
+	issueHeartbeat := flag.Int("issue-heartbeat", 10, "heartbeat seconds issued to enrolling edges")
+	issueMaxFailover := flag.Int("issue-max-failover", 3, "max-failover issued to enrolling edges")
 	flag.Parse()
 
 	accounts, err := loadAccounts(*accountsPath)
@@ -56,6 +60,11 @@ func main() {
 	if *enrollKeys != "" {
 		server.SetEnrollKeys(splitCSV(*enrollKeys))
 	}
+	issuedURL := *publicURL
+	if issuedURL == "" {
+		issuedURL = "http://" + *addr
+	}
+	server.SetEnrollConfig(issuedURL, *issueHeartbeat, *issueMaxFailover, splitCSV(*issuePlatforms))
 
 	srv := &http.Server{
 		Addr:              *addr,
