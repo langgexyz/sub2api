@@ -160,11 +160,35 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 结论:固定 Key 类(MiMo)= 已完成、零残留;refresh 相关的所有复杂度只属于 OAuth 类,是独立的后续工作。
 
-## 11. 待办 / 待定
+## 11. 剩余工作:复用 sub2api 扩展(不重造)
 
-1. 验证各 provider 的 OAuth refresh 是否校验来源 IP、refresh token 是否轮换(决定第 5 节 refresh 是否强制走 home edge)。
-2. ingress != egress 时,是 ingress 转发到 homeEdge 中继,还是直接把 client 路由到 homeEdge(权衡 client 就近 vs 多一跳)。
-3. lease/settle 的 proto 字段定稿 + 错误码。
-4. edge 健康探测与不健康剔除的具体阈值/窗口。
-5. 中心多副本时 lease 签发与配额预扣的并发正确性(是否需分布式锁/租约)。
-```
+原则:每项都接到 sub2api 已有能力上,`EdgeCenterHandler` / edge 只做薄扩展;OAuth 流程、加密、定价、并发 Redis 槽一律复用现成的。固定 key 类(MiMo)已完成,以下基本只属于 OAuth-refresh 类 + 两个 class-agnostic 加固。
+
+### P0 — OAuth-refresh 账号类支持(让 edge 也能服务 Claude/Codex/Gemini OAuth 账号)
+- 复用:Account 凭据存储 + AES 解密;sub2api 现成的 token provider —— `ClaudeTokenProvider` / `AntigravityTokenProvider` / OpenAI·Gemini OAuth provider 的 `GetAccessToken(ctx, account)`(过期自动 refresh);`GatewayService.buildUpstreamRequest` 里 OAuth 的 `Authorization: Bearer` + anthropic-beta / Claude CLI 头那段逻辑。
+- 扩展点:`handler/edge_center_handler.go: candidateFromAccount` 增加非-apikey 分支 —— 调 token provider 取当前有效 access token 填 `Candidate.LeaseToken`,`AuthScheme` 设 Bearer + 必要 beta 头;把 buildUpstreamRequest 的头构造抽成可共享函数,edge 复用。
+- 不重造:OAuth 授权/refresh/token 持久化全走 sub2api。
+
+### P1 — refresh 经 home edge 出口(仅 OAuth 类需要;IP 一致)
+- 复用:已建的 edge `/internal/egress` 出口原语(`internalKey` 已门控)+ sub2api 的 `tokenRefreshService`。
+- 扩展点:给 token provider/refresh 注入一个"经账号 home edge 的 /internal/egress 发出"的 http transport hook,使 refresh 与数据面同 IP(中心仍是单写者)。
+- 注:固定 key 类不涉及;是否强制取决于各 provider 是否校验 refresh 来源 IP(可先按需开启)。
+
+### P1 — Settle 记用量/计费(复用 gateway 同一条记账)
+- 复用:`UsageRecordWorkerPool` + gateway 路径里 `submitUsageRecordTask` 构造的 `usageService` 用量任务(定价/缓存/写聚合 flusher 全现成)。
+- 扩展点:Lease 时在 `leasedSlot` 多存 {apiKey, user, account, model};Settle 收到 edge 上报的 tokens 后,构造与 gateway 同样的 `UsageRecordTask` 提交。
+- 不重造:定价、计费、配额扣减、写聚合一律复用。
+
+### P2 — 多 center 副本的槽释放(当前单进程内存 map)
+- 复用:`ConcurrencyService` 的 Redis 并发槽 key(`AcquireAccountSlot` 管理的那套)。
+- 扩展点:`ConcurrencyService` 现无 release-by-key,补 `ReleaseAccountSlot(accountID)`(decrement 同一 Redis key);Settle 按 accountID 释放,不再依赖内存闭包 → center 可多副本。
+
+### P2 — token 信封加密
+- 现状:mTLS 已保护传输(已锁决策),edge 必须拿明文 token 调上游,信封加密边际收益低 → 降级可选。
+- 若做:复用 `repository/aes_encryptor` + 共享 key。
+
+### 待定(非阻塞)
+- ingress != egress 路由:ingress 转发到 home edge vs 直接路由 client 到 home edge。
+- lease/settle 升 gRPC + proto 定稿 + 错误码。
+- edge 健康探测剔除阈值/窗口(`edgereg` 已有 liveness,接入调度过滤即可)。
+- account→edge 硬绑定录入流程(注册时从 home edge IP 完成 OAuth)。
