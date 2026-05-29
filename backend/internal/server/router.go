@@ -103,6 +103,18 @@ func registerRoutes(
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 
+	// Distributed-edge control plane: edges call these to lease a real account
+	// (+ upstream token/endpoint) and settle it. Mounted off /edge to avoid
+	// colliding with the gateway's own /v1/* surface.
+	if h.EdgeCenter != nil {
+		edge := r.Group("/edge/v1")
+		edge.POST("/lease", h.EdgeCenter.Lease)
+		edge.POST("/settle", h.EdgeCenter.Settle)
+		edge.POST("/register", h.EdgeCenter.Register)
+		edge.POST("/heartbeat", h.EdgeCenter.Heartbeat)
+		edge.GET("/edges", h.EdgeCenter.Edges)
+	}
+
 	// API v1
 	v1 := r.Group("/api/v1")
 
