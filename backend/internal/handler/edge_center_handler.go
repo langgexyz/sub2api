@@ -47,6 +47,16 @@ type leasedSlot struct {
 	release   func()
 	accountID int64
 	released  bool
+
+	// Captured at lease so Settle can record usage via sub2api's existing
+	// accounting (per-account + per-apikey + pricing/quota).
+	apiKey        *service.APIKey
+	user          *service.User
+	account       *service.Account
+	model         string
+	upstreamModel string
+	stream        bool
+	quotaPlatform string
 }
 
 // NewEdgeCenterHandler builds the edge control-plane handler.
@@ -163,7 +173,17 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 
 	slotID := newSlotID()
 	h.mu.Lock()
-	h.slots[slotID] = &leasedSlot{release: release, accountID: sel.Account.ID}
+	h.slots[slotID] = &leasedSlot{
+		release:       release,
+		accountID:     sel.Account.ID,
+		apiKey:        apiKey,
+		user:          user,
+		account:       sel.Account,
+		model:         req.Model,
+		upstreamModel: sel.Account.GetMappedModel(req.Model),
+		stream:        req.Stream,
+		quotaPlatform: service.QuotaPlatform(ctx, apiKey),
+	}
 	h.mu.Unlock()
 
 	c.JSON(http.StatusOK, edgegw.LeaseResult{
@@ -195,15 +215,47 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 	if !duplicate && slot != nil && slot.release != nil {
 		slot.release()
 	}
-	// NOTE: detailed usage/billing recording is a follow-up; sub2api's usage
-	// task carries pricing/cache fields built in the gateway path. The slot
-	// release (the correctness-critical part) is done here.
+
+	// Record usage via sub2api's existing accounting (per-account + per-apikey,
+	// pricing/quota) — the SAME entry the central gateway uses. Only on success
+	// with real tokens; failures consume no usage.
+	if !duplicate && slot != nil && slot.apiKey != nil && req.StatusCode < 400 && (req.InputTokens > 0 || req.OutputTokens > 0) {
+		h.recordSettleUsage(slot, req)
+	}
 
 	c.JSON(http.StatusOK, edgegw.SettleResult{
 		RequestID: req.RequestID,
 		Accepted:  true,
 		Duplicate: duplicate,
 	})
+}
+
+// recordSettleUsage builds a ForwardResult from the edge-reported tokens and
+// records it through sub2api's GatewayService.RecordUsage (per-account + per-
+// apikey usage, pricing, quota deduction). Runs synchronously on a background
+// context so it is independent of the settle request's lifetime.
+func (h *EdgeCenterHandler) recordSettleUsage(slot *leasedSlot, req edgegw.SettleRequest) {
+	result := &service.ForwardResult{
+		RequestID:     req.RequestID,
+		Usage:         service.ClaudeUsage{InputTokens: req.InputTokens, OutputTokens: req.OutputTokens},
+		Model:         slot.model,
+		UpstreamModel: slot.upstreamModel,
+		Stream:        slot.stream,
+		Duration:      time.Duration(req.LatencyMS) * time.Millisecond,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
+		Result:        result,
+		APIKey:        slot.apiKey,
+		User:          slot.user,
+		Account:       slot.account,
+		QuotaPlatform: slot.quotaPlatform,
+		APIKeyService: h.apiKeyService,
+	}); err != nil {
+		logger.L().With(zap.String("component", "handler.edge_center")).
+			Error("edge_center.record_usage_failed", zap.Error(err))
+	}
 }
 
 // candidateFromAccount maps a real sub2api Account to an edge Candidate. It
