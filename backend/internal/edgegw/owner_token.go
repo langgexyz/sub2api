@@ -24,6 +24,28 @@ func (t *ownerToken) accessToken() string {
 	return t.access
 }
 
+func (t *ownerToken) refreshToken() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.refresh
+}
+
+// set replaces both tokens (used by device login at runtime).
+func (t *ownerToken) set(access, refresh string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.access = access
+	t.refresh = refresh
+}
+
+// clear wipes both tokens (logout).
+func (t *ownerToken) clear() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.access = ""
+	t.refresh = ""
+}
+
 // authHeader sets Authorization: Bearer <access jwt> on a center request.
 func (e *EdgeRelay) authHeader(req *http.Request) {
 	if e.owner == nil {
@@ -78,7 +100,14 @@ func (e *EdgeRelay) refreshOwner(ctx context.Context) bool {
 	if out.Data.RefreshToken != "" {
 		e.owner.refresh = out.Data.RefreshToken
 	}
+	access, refresh := e.owner.access, e.owner.refresh
 	e.owner.mu.Unlock()
+	// Persist the rotated pair so a restart doesn't lose the renewed session.
+	// Without this the edge keeps only the in-memory tokens and falls back to the
+	// (possibly stale) on-disk pair after a restart.
+	if e.onRefresh != nil {
+		e.onRefresh(access, refresh)
+	}
 	return true
 }
 

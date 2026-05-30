@@ -328,6 +328,25 @@ export function isAuthenticated(): boolean {
 }
 
 /**
+ * Verify a device-authorization code (RFC 8628 device flow) is still valid,
+ * before showing the approve button. Used by the edge CLI login page.
+ */
+export async function verifyDeviceCode(userCode: string): Promise<boolean> {
+  const { data } = await apiClient.get<{ valid: boolean }>('/auth/device/verify', {
+    params: { user_code: userCode }
+  })
+  return data.valid
+}
+
+/**
+ * Approve a device-authorization code: the logged-in user authorizes the edge
+ * CLI device that printed this code.
+ */
+export async function approveDevice(userCode: string): Promise<void> {
+  await apiClient.post('/auth/device/approve', { user_code: userCode })
+}
+
+/**
  * Get public settings (no auth required)
  * @returns Public settings including registration and Turnstile config
  */
@@ -681,6 +700,8 @@ export const authAPI = {
   resetPassword,
   refreshToken,
   revokeAllSessions,
+  verifyDeviceCode,
+  approveDevice,
   getPendingOAuthBindLoginKind,
   isPendingOAuthCreateAccountRequired,
   hasPendingOAuthSuggestedProfile,

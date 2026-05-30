@@ -16,7 +16,7 @@ import (
 
 // Register announces this edge to the center once.
 func (e *EdgeRelay) Register(ctx context.Context, egressIP string, platforms []string) error {
-	body, _ := json.Marshal(RegisterRequest{EdgeID: e.edgeID, EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
+	body, _ := json.Marshal(RegisterRequest{EdgeID: e.EdgeID(), EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/register", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -33,7 +33,7 @@ func (e *EdgeRelay) Register(ctx context.Context, egressIP string, platforms []s
 // heartbeat pings the center once; returns false if the center does not know
 // this edge (caller should re-register).
 func (e *EdgeRelay) heartbeat(ctx context.Context) (known bool, err error) {
-	body, _ := json.Marshal(HeartbeatRequest{EdgeID: e.edgeID})
+	body, _ := json.Marshal(HeartbeatRequest{EdgeID: e.EdgeID()})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/heartbeat", bytes.NewReader(body))
 	if err != nil {
 		return false, err

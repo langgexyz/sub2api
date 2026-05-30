@@ -118,6 +118,7 @@ func registerRoutes(
 		log.Println("edge control plane: mTLS enforcement enabled")
 	}
 	edge.POST("/enroll", h.EdgeCenter.Enroll)
+	edge.GET("/config", h.EdgeCenter.Config)
 	edge.POST("/lease", h.EdgeCenter.Lease)
 	edge.POST("/settle", h.EdgeCenter.Settle)
 	edge.POST("/register", h.EdgeCenter.Register)

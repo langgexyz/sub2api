@@ -187,6 +187,42 @@ func (h *EdgeCenterHandler) Enroll(c *gin.Context) {
 	})
 }
 
+// Config returns the edge's operating config to an owner-authenticated edge.
+// It is the device-login counterpart of Enroll: instead of presenting an enroll
+// key, the edge presents its owner's sub2api JWT (obtained via the device flow),
+// and the center returns the seal secret + runtime params, with the edge id
+// derived from the owner's user id (one logical edge per user). No enroll key
+// needed — the JWT IS the credential.
+// GET /edge/v1/config
+func (h *EdgeCenterHandler) Config(c *gin.Context) {
+	uid, err := h.edgeOwnerUserID(c)
+	if err != nil {
+		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
+		return
+	}
+	if uid == 0 {
+		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", "owner JWT required")
+		return
+	}
+	hb := h.issuedHeartbeat
+	if hb <= 0 {
+		hb = 10
+	}
+	mf := h.issuedMaxFailover
+	if mf <= 0 {
+		mf = 3
+	}
+	c.JSON(http.StatusOK, edgegw.EnrollResponse{
+		EdgeID:           "edge-u" + strconv.FormatInt(uid, 10),
+		CenterURL:        h.issuedCenterURL,
+		TokenSecret:      string(h.tokenSecret),
+		UpstreamProxy:    h.issuedProxy,
+		HeartbeatSeconds: hb,
+		MaxFailover:      mf,
+		Platforms:        append([]string(nil), h.issuedPlatforms...),
+	})
+}
+
 // Register records an edge in the fleet (auto-detecting its egress IP).
 func (h *EdgeCenterHandler) Register(c *gin.Context) {
 	var req edgegw.RegisterRequest

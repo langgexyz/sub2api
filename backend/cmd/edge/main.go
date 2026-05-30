@@ -1,26 +1,25 @@
 // Command edge is the standalone distributed-edge data-plane CLI.
 //
-// Onboarding is one token:
+// Running `edge` starts the relay immediately and drops you into an interactive
+// console:
 //
-//	edge enroll <token>     # token (from the center login) embeds center URL + key;
-//	                        # the edge fetches its config from the center and saves it
-//	edge                    # runs using the saved, center-issued config
+//	edge                    # start serving + console; if not logged in, prompts login
+//	  /login                # browser device login (RFC 8628); creds saved locally
+//	  /logout               # revoke + clear local creds (relay stops serving)
+//	  /status               # owner, center, edge id, listen addr, token validity
+//	  /quit                 # graceful shutdown
 //
-// The edge registers with the center, accepts client prompts on the sub2api
-// gateway surface, leases an account, performs the upstream request itself from
-// its stable egress IP/proxy, streams the response back, and settles usage.
-// Advanced flags exist as overrides but are rarely needed. See
-// docs/tech/distributed-edge.md.
+// Login uses the OAuth device flow: the console prints a short code and opens the
+// browser to the center's /device page (already logged in there); on approval
+// the tokens flow back here and are saved to ~/.config/sub2api-edge/session.json
+// (0600). Only the owner token pair is stored — the edge id and lease-token seal
+// secret are fetched from the center at runtime. See docs/tech/distributed-edge.md.
 package main
 
 import (
-	"bytes"
+	"bufio"
 	"context"
-	"crypto/tls"
-	"encoding/json"
-	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -30,7 +29,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgetls"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
 )
 
@@ -38,10 +36,6 @@ import (
 var Version = "dev"
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "enroll" {
-		runEnroll(os.Args[2:])
-		return
-	}
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Printf("edge %s\n", Version)
 		return
@@ -49,135 +43,105 @@ func main() {
 	runServe(os.Args[1:])
 }
 
-// runEnroll exchanges the user's token for center-issued config and saves it.
-func runEnroll(args []string) {
-	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	statePath := fs.String("state", "", "state file path (default: per-user config dir)")
-	_ = fs.Parse(args)
-	if fs.NArg() < 1 {
-		log.Fatalf("usage: edge enroll <token>")
-	}
-	tok, err := enroll.DecodeToken(fs.Arg(0))
-	if err != nil {
-		log.Fatalf("edge: invalid token: %v", err)
-	}
-
-	body, _ := json.Marshal(edgegw.EnrollRequest{Key: tok.Key})
-	resp, err := http.Post(strings.TrimRight(tok.Center, "/")+"/v1/enroll", "application/json", bytes.NewReader(body))
-	if err != nil {
-		log.Fatalf("edge: enroll request: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(resp.Body)
-		log.Fatalf("edge: enroll rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	var er edgegw.EnrollResponse
-	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
-		log.Fatalf("edge: decode enroll response: %v", err)
-	}
-
-	centerURL := er.CenterURL
-	if centerURL == "" {
-		centerURL = tok.Center
-	}
-	e := enroll.Enrolled{
-		CenterURL:        centerURL,
-		EdgeID:           er.EdgeID,
-		EnrollKey:        tok.Key,
-		HeartbeatSeconds: er.HeartbeatSeconds,
-		MaxFailover:      er.MaxFailover,
-		Platforms:        er.Platforms,
-	}
-	path := *statePath
-	if path == "" {
-		path = os.Getenv("EDGE_STATE")
-	}
-	if path == "" {
-		path, err = enroll.DefaultStatePath()
-		if err != nil {
-			log.Fatalf("edge: resolve state path: %v", err)
-		}
-	}
-	if err := enroll.Save(path, e); err != nil {
-		log.Fatalf("edge: save state: %v", err)
-	}
-	log.Printf("edge: enrolled as %q (center=%s); saved to %s. run `edge` to start.", e.EdgeID, e.CenterURL, path)
+// edgeApp holds the running relay + the bits the console needs to log in/out and
+// persist credentials.
+type edgeApp struct {
+	relay       *edgegw.EdgeRelay
+	centerEdge  string // center edge control-plane base, e.g. http://host:8080/edge
+	authBase    string // sub2api API root, e.g. http://host:8080
+	httpClient  *http.Client
+	sessionPath string
+	addr        string
 }
 
-// runServe loads saved state (if any) as defaults, applies flag/env overrides,
-// and runs the relay.
 func runServe(args []string) {
-	// Seed defaults from saved enrollment state when present.
-	st := loadState("")
+	cfg := parseFlags(args)
 
-	fs := flag.NewFlagSet("edge", flag.ExitOnError)
-	addr := fs.String("addr", env("EDGE_ADDR", ":8088"), "listen address for client traffic [EDGE_ADDR]")
-	center := fs.String("center", orDefault(st.CenterURL, env("EDGE_CENTER_URL", "http://localhost:9000")), "center base URL [EDGE_CENTER_URL]")
-	edgeID := fs.String("edge-id", orDefault(st.EdgeID, env("EDGE_ID", "edge-local")), "edge identifier [EDGE_ID]")
-	enrollKey := fs.String("enroll-key", orDefault(st.EnrollKey, env("EDGE_ENROLL_KEY", "")), "enroll key [EDGE_ENROLL_KEY]")
-	platforms := fs.String("platforms", env("EDGE_PLATFORMS", strings.Join(st.Platforms, ",")), "comma-separated platforms [EDGE_PLATFORMS]")
-	egressIP := fs.String("egress-ip", env("EDGE_EGRESS_IP", ""), "stable egress IP reported to center (auto-detected if empty) [EDGE_EGRESS_IP]")
-	maxFailover := fs.Int("max-failover", intOrDefault(st.MaxFailover, envInt("EDGE_MAX_FAILOVER", 3)), "max candidates to try locally [EDGE_MAX_FAILOVER]")
-	upstreamProxy := fs.String("upstream-proxy", env("EDGE_UPSTREAM_PROXY", ""), "egress proxy: http/https/socks5 (empty=direct) [EDGE_UPSTREAM_PROXY]")
-	upstreamTimeout := fs.Duration("upstream-timeout", envDuration("EDGE_UPSTREAM_TIMEOUT", 5*time.Minute), "upstream timeout [EDGE_UPSTREAM_TIMEOUT]")
-	heartbeat := fs.Duration("heartbeat", heartbeatDefault(st), "heartbeat interval [EDGE_HEARTBEAT]")
-	tlsCert := fs.String("tls-cert", env("EDGE_TLS_CERT", ""), "client cert PEM for mTLS to center [EDGE_TLS_CERT]")
-	tlsKey := fs.String("tls-key", env("EDGE_TLS_KEY", ""), "client key PEM for mTLS to center [EDGE_TLS_KEY]")
-	tlsServerCA := fs.String("tls-server-ca", env("EDGE_TLS_SERVER_CA", ""), "CA PEM that signs the center cert [EDGE_TLS_SERVER_CA]")
-	internalKey := fs.String("internal-key", env("EDGE_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [EDGE_INTERNAL_KEY]")
-	tokenSecret := fs.String("token-secret", env("EDGE_TOKEN_SECRET", ""), "shared secret to open sealed lease tokens; must match the center [EDGE_TOKEN_SECRET]")
-	ownerJWT := fs.String("owner-jwt", env("EDGE_OWNER_JWT", ""), "edge owner's sub2api access JWT (proves ownership) [EDGE_OWNER_JWT]")
-	ownerRefresh := fs.String("owner-refresh", env("EDGE_OWNER_REFRESH", ""), "edge owner's sub2api refresh token (auto-renews the JWT) [EDGE_OWNER_REFRESH]")
-	_ = fs.Parse(args)
-
-	upstreamClient, err := edgegw.NewUpstreamClient(*upstreamProxy, *upstreamTimeout)
+	upstreamClient, err := edgegw.NewUpstreamClient(cfg.upstreamProxy, cfg.upstreamTimeout)
 	if err != nil {
 		log.Fatalf("edge: %v", err)
 	}
-
 	centerClient := &http.Client{Timeout: 15 * time.Second}
-	if *tlsCert != "" {
-		cfg, err := edgetls.ClientTLSConfig(*tlsCert, *tlsKey, *tlsServerCA)
-		if err != nil {
-			log.Fatalf("edge: mTLS config: %v", err)
+
+	// Load any saved session (owner token pair). Everything else is fetched at
+	// login/startup.
+	sessionPath := cfg.statePath
+	if sessionPath == "" {
+		if p, perr := enroll.DefaultSessionPath(); perr == nil {
+			sessionPath = p
 		}
-		centerClient.Transport = &http.Transport{TLSClientConfig: cfg.Clone(), ForceAttemptHTTP2: true}
-		_ = tls.VersionTLS12
 	}
+	sess, _ := enroll.LoadSession(sessionPath)
 
 	relay := edgegw.NewEdgeRelay(edgegw.EdgeConfig{
-		EdgeID:            *edgeID,
-		EnrollKey:         *enrollKey,
-		InternalKey:       *internalKey,
-		TokenSecret:       []byte(*tokenSecret),
-		OwnerAccessToken:  *ownerJWT,
-		OwnerRefreshToken: *ownerRefresh,
-		CenterURL:         *center,
+		InternalKey:       cfg.internalKey,
+		OwnerAccessToken:  sess.OwnerAccess,
+		OwnerRefreshToken: sess.OwnerRefresh,
+		CenterURL:         cfg.center,
 		CenterHTTP:        centerClient,
 		Upstream:          upstreamClient,
-		MaxFailover:       *maxFailover,
+		MaxFailover:       cfg.maxFailover,
 	})
 
-	egressLabel := *upstreamProxy
+	app := &edgeApp{
+		relay:       relay,
+		centerEdge:  cfg.center,
+		authBase:    authBaseFromCenter(cfg.center),
+		httpClient:  centerClient,
+		sessionPath: sessionPath,
+		addr:        cfg.addr,
+	}
+	// Persist rotated tokens (login + auto-refresh) so a restart keeps the
+	// session. Empty pair clears the file (logout).
+	relay.SetOnRefresh(func(access, refresh string) {
+		if serr := enroll.SaveSession(app.sessionPath, enroll.Session{OwnerAccess: access, OwnerRefresh: refresh}); serr != nil {
+			log.Printf("edge: warning: could not save session: %v", serr)
+		}
+	})
+
+	egressLabel := cfg.upstreamProxy
 	if egressLabel == "" {
 		egressLabel = "direct"
 	}
-	log.Printf("edge %q (%s): listening on %s, center=%s, egress=%s", *edgeID, Version, *addr, *center, egressLabel)
+	log.Printf("edge %s: listening on %s, center=%s, egress=%s", Version, cfg.addr, cfg.center, egressLabel)
 
-	srv := &http.Server{Addr: *addr, Handler: relay.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go relay.RunHeartbeat(ctx, *egressIP, splitCSV(*platforms), *heartbeat)
+
+	// If we already have a session on disk, bring the relay online (fetch config
+	// using the saved/refreshed access token) before serving.
+	if relay.LoggedIn() {
+		if err := app.activate(ctx); err != nil {
+			log.Printf("edge: saved session not usable (%v); run /login", err)
+		}
+	}
+
+	srv := &http.Server{Addr: cfg.addr, Handler: relay.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("edge: %v", err)
 		}
 	}()
+	go relay.RunHeartbeat(ctx, cfg.egressIP, splitCSV(cfg.platforms), cfg.heartbeat)
+
+	// If not logged in, kick off login immediately (like claude code's first run).
+	if !relay.LoggedIn() {
+		fmt.Println("Not logged in. Starting login…")
+		if err := app.doLogin(ctx); err != nil {
+			fmt.Printf("login failed: %v\n", err)
+		}
+	}
+
+	// Interactive console alongside the running relay.
+	go app.repl(ctx, cancel)
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Printf("edge %q: shutting down", *edgeID)
+	select {
+	case <-quit:
+	case <-ctx.Done():
+	}
+	log.Printf("edge: shutting down")
 	cancel()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
@@ -186,43 +150,95 @@ func runServe(args []string) {
 	}
 }
 
-func loadState(path string) enroll.Enrolled {
-	if path == "" {
-		path = os.Getenv("EDGE_STATE")
-	}
-	if path == "" {
-		p, err := enroll.DefaultStatePath()
-		if err != nil {
-			return enroll.Enrolled{}
-		}
-		path = p
-	}
-	e, err := enroll.Load(path)
+// activate fetches the edge config with the current access token (refreshing
+// once if it is expired) and installs edge id + seal secret into the relay,
+// WITHOUT touching the owner token pair (so the saved refresh token survives).
+func (app *edgeApp) activate(ctx context.Context) error {
+	access := app.relay.OwnerAccess()
+	conf, err := fetchConfig(ctx, app.httpClient, app.centerEdge, access)
 	if err != nil {
-		return enroll.Enrolled{}
+		// Access may have expired while the edge was off; refresh via the relay
+		// (which persists the rotated pair) and retry once.
+		if app.relay.RefreshOwner(ctx) {
+			access = app.relay.OwnerAccess()
+			conf, err = fetchConfig(ctx, app.httpClient, app.centerEdge, access)
+		}
+		if err != nil {
+			return err
+		}
 	}
-	return e
+	app.relay.SetSeal(conf.EdgeID, []byte(conf.TokenSecret))
+	return nil
 }
 
-func heartbeatDefault(st enroll.Enrolled) time.Duration {
-	if st.HeartbeatSeconds > 0 {
-		return time.Duration(st.HeartbeatSeconds) * time.Second
+// doLogin runs the device flow and installs the result into the relay.
+func (app *edgeApp) doLogin(ctx context.Context) error {
+	res, err := deviceLogin(ctx, app.httpClient, app.authBase, app.centerEdge)
+	if err != nil {
+		return err
 	}
-	return envDuration("EDGE_HEARTBEAT", 10*time.Second)
+	app.relay.Login(res.access, res.refresh, res.edgeID, res.secret)
+	if claims, ok := parseJWTUnverified(res.access); ok && claims.Email != "" {
+		fmt.Printf("logged in as %s (edge %s)\n", claims.Email, res.edgeID)
+	} else {
+		fmt.Printf("logged in (edge %s)\n", res.edgeID)
+	}
+	return nil
 }
 
-func orDefault(primary, fallback string) string {
-	if primary != "" {
-		return primary
+// repl reads console commands until /quit or EOF.
+func (app *edgeApp) repl(ctx context.Context, cancel context.CancelFunc) {
+	sc := bufio.NewScanner(os.Stdin)
+	fmt.Println("Type /login, /logout, /status, or /quit.")
+	prompt := func() { fmt.Print("edge> ") }
+	prompt()
+	for sc.Scan() {
+		switch strings.TrimSpace(sc.Text()) {
+		case "":
+		case "/login":
+			if err := app.doLogin(ctx); err != nil {
+				fmt.Printf("login failed: %v\n", err)
+			}
+		case "/logout":
+			logoutCenter(ctx, app.httpClient, app.authBase, app.relay.OwnerRefresh())
+			app.relay.Logout()
+			fmt.Println("logged out")
+		case "/status":
+			app.printStatus()
+		case "/quit", "/exit":
+			fmt.Println("bye")
+			cancel()
+			return
+		default:
+			fmt.Println("unknown command; try /login, /logout, /status, /quit")
+		}
+		prompt()
 	}
-	return fallback
+	// EOF on stdin (e.g. piped/headless): keep serving, just stop reading.
 }
 
-func intOrDefault(primary, fallback int) int {
-	if primary > 0 {
-		return primary
+func (app *edgeApp) printStatus() {
+	if !app.relay.LoggedIn() {
+		fmt.Println("  status: logged out (run /login)")
+		fmt.Printf("  center: %s\n", app.centerEdge)
+		fmt.Printf("  listen: %s\n", app.addr)
+		return
 	}
-	return fallback
+	access := app.relay.OwnerAccess()
+	who := "unknown"
+	expiry := "?"
+	if claims, ok := parseJWTUnverified(access); ok {
+		if claims.Email != "" {
+			who = fmt.Sprintf("%s (uid %d)", claims.Email, claims.UserID)
+		}
+		expiry = time.Until(claims.expiresAt()).Round(time.Second).String()
+	}
+	fmt.Printf("  status: logged in\n")
+	fmt.Printf("  owner:  %s\n", who)
+	fmt.Printf("  edge:   %s\n", app.relay.EdgeID())
+	fmt.Printf("  center: %s\n", app.centerEdge)
+	fmt.Printf("  listen: %s\n", app.addr)
+	fmt.Printf("  access expires in: %s\n", expiry)
 }
 
 func splitCSV(s string) []string {
@@ -237,30 +253,4 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
-}
-
-func env(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func envInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		var n int
-		if _, err := fmt.Sscanf(v, "%d", &n); err == nil {
-			return n
-		}
-	}
-	return def
-}
-
-func envDuration(key string, def time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	return def
 }

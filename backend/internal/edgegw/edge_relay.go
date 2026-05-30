@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,17 +20,28 @@ import (
 // upstream request itself (from this node's IP), streams the response back, and
 // reports usage via Settle. It carries no durable state.
 type EdgeRelay struct {
-	edgeID      string
 	enrollKey   string
 	internalKey string
-	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
-	owner       *ownerToken
+	owner       *ownerToken // always non-nil; empty tokens => logged out
 	centerURL   string
 	centerHTTP  *http.Client
 	upstream    *http.Client
 	maxFailover int
 	maxBodyByte int64
 	now         Clock
+
+	// onRefresh, if set, is called whenever the owner access/refresh pair is
+	// rotated (login or auto-refresh) so the caller can persist it. Set via
+	// SetOnRefresh before serving.
+	onRefresh func(access, refresh string)
+
+	// secMu guards edgeID + tokenSecret, both set at login time (fetched from the
+	// center's /edge/v1/config) and changed across login/logout, concurrently
+	// with the relay/heartbeat goroutines reading them. The seal token is bound
+	// to edgeID, so they must move together.
+	secMu       sync.RWMutex
+	edgeID      string
+	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
 }
 
 // EdgeConfig configures an EdgeRelay.
@@ -78,10 +90,10 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	if maxBody <= 0 {
 		maxBody = 32 << 20 // 32 MiB
 	}
-	var owner *ownerToken
-	if cfg.OwnerAccessToken != "" || cfg.OwnerRefreshToken != "" {
-		owner = &ownerToken{access: cfg.OwnerAccessToken, refresh: cfg.OwnerRefreshToken}
-	}
+	// owner is always non-nil; empty tokens simply mean "logged out" and the
+	// relay rejects requests until Login sets them. This lets device login
+	// populate tokens at runtime without rebuilding the relay.
+	owner := &ownerToken{access: cfg.OwnerAccessToken, refresh: cfg.OwnerRefreshToken}
 	return &EdgeRelay{
 		edgeID:      cfg.EdgeID,
 		enrollKey:   cfg.EnrollKey,
@@ -97,13 +109,97 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	}
 }
 
+// SetOnRefresh registers a callback invoked whenever the owner token pair is
+// rotated (login or auto-refresh), so the caller can persist it to disk. Not
+// safe to call concurrently with serving; set it once before Handler runs.
+func (e *EdgeRelay) SetOnRefresh(fn func(access, refresh string)) {
+	e.onRefresh = fn
+}
+
+// Login installs the owner token pair plus the edge id + lease-token seal secret
+// obtained from the center (GET /edge/v1/config), making the relay able to
+// serve. Safe to call while serving. It also fires onRefresh so the new pair is
+// persisted.
+func (e *EdgeRelay) Login(access, refresh, edgeID string, tokenSecret []byte) {
+	e.owner.set(access, refresh)
+	e.secMu.Lock()
+	e.edgeID = edgeID
+	e.tokenSecret = tokenSecret
+	e.secMu.Unlock()
+	if e.onRefresh != nil {
+		e.onRefresh(access, refresh)
+	}
+}
+
+// Logout clears the owner tokens, edge id and seal secret. Subsequent lease
+// calls fail auth (401) so the relay stops serving until the next Login. Fires
+// onRefresh with empty strings so persisted creds are cleared too.
+func (e *EdgeRelay) Logout() {
+	e.owner.clear()
+	e.secMu.Lock()
+	e.edgeID = ""
+	e.tokenSecret = nil
+	e.secMu.Unlock()
+	if e.onRefresh != nil {
+		e.onRefresh("", "")
+	}
+}
+
+// EdgeID returns the current edge id (empty until login).
+func (e *EdgeRelay) EdgeID() string {
+	e.secMu.RLock()
+	defer e.secMu.RUnlock()
+	return e.edgeID
+}
+
+// LoggedIn reports whether the relay currently holds an owner access token.
+func (e *EdgeRelay) LoggedIn() bool {
+	return e.owner.accessToken() != ""
+}
+
+// OwnerAccess returns the current owner access JWT (for status / JWT parsing).
+func (e *EdgeRelay) OwnerAccess() string {
+	return e.owner.accessToken()
+}
+
+// OwnerRefresh returns the current owner refresh token (for server-side logout).
+func (e *EdgeRelay) OwnerRefresh() string {
+	return e.owner.refreshToken()
+}
+
+// RefreshOwner forces an owner access-token refresh via the center and persists
+// the rotated pair (through onRefresh). Returns true on success. Exposed so the
+// CLI can bring a relay online from a saved session whose access token expired
+// while the edge was stopped.
+func (e *EdgeRelay) RefreshOwner(ctx context.Context) bool {
+	return e.refreshOwner(ctx)
+}
+
+// SetSeal installs the edge id + seal secret without touching the owner tokens.
+// Used to bring the relay online from an existing session (after fetching
+// /edge/v1/config) without overwriting the token pair.
+func (e *EdgeRelay) SetSeal(edgeID string, tokenSecret []byte) {
+	e.secMu.Lock()
+	e.edgeID = edgeID
+	e.tokenSecret = tokenSecret
+	e.secMu.Unlock()
+}
+
+// sealState returns the current edge id + seal secret together under one read
+// lock, so the seal token is always opened against the matching edge id.
+func (e *EdgeRelay) sealState() (edgeID string, secret []byte) {
+	e.secMu.RLock()
+	defer e.secMu.RUnlock()
+	return e.edgeID, e.tokenSecret
+}
+
 // unwrapToken resolves the real upstream credential from a lease token. When a
 // token secret is configured the token is an AEAD-sealed envelope bound to this
 // edge + an expiry (OpenLeaseToken); otherwise it is raw (or a PoC HMAC
 // envelope handled by UpstreamBearer).
 func (e *EdgeRelay) unwrapToken(leaseToken string) (string, error) {
-	if len(e.tokenSecret) > 0 {
-		return OpenLeaseToken(leaseToken, e.edgeID, e.tokenSecret, e.now)
+	if edgeID, secret := e.sealState(); len(secret) > 0 {
+		return OpenLeaseToken(leaseToken, edgeID, secret, e.now)
 	}
 	return UpstreamBearer(leaseToken), nil
 }
@@ -153,7 +249,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 		Model:       model,
 		SessionHash: sessionHash,
 		RequestID:   requestID,
-		EdgeID:      e.edgeID,
+		EdgeID:      e.EdgeID(),
 		Stream:      stream,
 	})
 	if err != nil {
@@ -236,7 +332,7 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		copyForwardHeaders(r.Header, upReq.Header)
 		// Present the leased credential per the account's auth scheme.
 		cand.AuthScheme.apply(upReq, bearer)
-		upReq.Header.Set("X-Edge-Id", e.edgeID)
+		upReq.Header.Set("X-Edge-Id", e.EdgeID())
 
 		resp, doErr := e.upstream.Do(upReq)
 		if doErr != nil {
