@@ -206,31 +206,27 @@ func randHex(n int) string {
 
 // userCodeAlphabet excludes visually ambiguous characters (0/O, 1/I/L) so the
 // code is easy to read off a terminal and type into a browser.
-const userCodeAlphabet = "BCDFGHJKLMNPQRSTVWXZ23456789"
+const userCodeAlphabet = "BCDFGHJKMNPQRSTVWXZ23456789"
 
 // randUserCode returns a short code formatted XXXX-XXXX from the ambiguity-free
-// alphabet, using crypto/rand with rejection sampling for an unbiased pick.
+// alphabet, using crypto/rand with rejection sampling for an unbiased pick. It
+// draws exactly n letters and inserts the dash positionally, so the dash never
+// affects how many letters are produced.
 func randUserCode() string {
-	const n = 8
-	out := make([]byte, 0, n+1)
+	const n = 8 // letters, not counting the dash
+	letters := make([]byte, 0, n)
 	buf := make([]byte, 1)
 	max := byte(len(userCodeAlphabet))
 	limit := byte(256 - (256 % int(max)))
-	for len(out) < n {
+	for len(letters) < n {
 		if _, err := rand.Read(buf); err != nil {
-			out = append(out, userCodeAlphabet[0])
-			if len(out) == 4 {
-				out = append(out, '-')
-			}
+			letters = append(letters, userCodeAlphabet[0])
 			continue
 		}
 		if buf[0] >= limit {
 			continue // reject to avoid modulo bias
 		}
-		out = append(out, userCodeAlphabet[buf[0]%max])
-		if len(out) == 4 {
-			out = append(out, '-')
-		}
+		letters = append(letters, userCodeAlphabet[buf[0]%max])
 	}
-	return string(out)
+	return string(letters[:4]) + "-" + string(letters[4:])
 }
