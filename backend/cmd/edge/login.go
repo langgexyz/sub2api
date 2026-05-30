@@ -3,41 +3,30 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
 )
 
-// Device-authorization (RFC 8628) client for the edge. authBase is the sub2api
-// API root (center base with any trailing /edge stripped); centerEdge is the
-// edge control-plane base (…/edge) used for GET /v1/config.
+// Loopback + PKCE + device-key login client for the edge (ccdirect). authBase is
+// the sub2api API root (center base with any trailing /edge stripped); centerEdge
+// is the edge control-plane base (…/edge) used for GET /v1/config; centerWebBase
+// is the sub2api web origin that serves the /cli/authorize SPA route.
+// See docs/tech/ccdirect-auth-contract.md.
 
-type deviceCodeResp struct {
-	Data struct {
-		DeviceCode              string `json:"device_code"`
-		UserCode                string `json:"user_code"`
-		VerificationURI         string `json:"verification_uri"`
-		VerificationURIComplete string `json:"verification_uri_complete"`
-		ExpiresIn               int    `json:"expires_in"`
-		Interval                int    `json:"interval"`
-	} `json:"data"`
-}
-
-type deviceTokenResp struct {
-	Data struct {
-		Status       string `json:"status"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-	} `json:"data"`
-}
-
-// loginResult carries everything a successful device login yields.
+// loginResult carries everything a successful login yields.
 type loginResult struct {
 	access  string
 	refresh string
@@ -45,72 +34,177 @@ type loginResult struct {
 	secret  []byte
 }
 
-// deviceLogin runs the full device flow: request a code, show it + open the
-// browser, poll until approved, then fetch the edge config (seal secret + edge
-// id) with the new access token. Blocks until success, error, or ctx done.
-func deviceLogin(ctx context.Context, hc *http.Client, authBase, centerEdge string) (loginResult, error) {
-	codeResp, err := postJSON[deviceCodeResp](ctx, hc, authBase+"/api/v1/auth/device/code", nil, "")
+// cliTokenResp is the POST /api/v1/auth/cli/token response. Fields may be
+// returned either at the top level or wrapped in a data envelope depending on
+// the center's response style; both are decoded.
+type cliTokenResp struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	Data         struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	} `json:"data"`
+}
+
+func (r cliTokenResp) tokens() (access, refresh string) {
+	access, refresh = r.AccessToken, r.RefreshToken
+	if access == "" {
+		access = r.Data.AccessToken
+	}
+	if refresh == "" {
+		refresh = r.Data.RefreshToken
+	}
+	return access, refresh
+}
+
+// callbackResult is what the loopback /callback handler captures.
+type callbackResult struct {
+	code  string
+	state string
+}
+
+// loginTimeout bounds how long we wait for the browser-side authorization.
+const loginTimeout = 5 * time.Minute
+
+// loopbackLogin runs the loopback + PKCE + device-key login: it spins up a
+// localhost callback server, opens the browser to the center's /cli/authorize
+// page (carrying the PKCE challenge, redirect_uri, state, and device pubkey),
+// waits for the authorization code to land on the loopback server, exchanges it
+// for tokens at /api/v1/auth/cli/token, then fetches the edge config (seal
+// secret + edge id). Blocks until success, error, or ctx done.
+func loopbackLogin(ctx context.Context, hc *http.Client, authBase, centerWebBase, centerEdge string, dk deviceKey) (loginResult, error) {
+	verifier, err := genVerifier()
 	if err != nil {
-		return loginResult{}, fmt.Errorf("request device code: %w", err)
+		return loginResult{}, fmt.Errorf("generate code verifier: %w", err)
 	}
-	d := codeResp.Data
-	if d.DeviceCode == "" || d.UserCode == "" {
-		return loginResult{}, errors.New("center returned an empty device code")
-	}
-
-	verifyURL := d.VerificationURIComplete
-	if verifyURL == "" {
-		verifyURL = d.VerificationURI
-	}
-	fmt.Println()
-	fmt.Println("  To authorize this edge, open:")
-	fmt.Printf("    %s\n", verifyURL)
-	fmt.Printf("  and confirm the code:  %s\n", d.UserCode)
-	fmt.Println()
-	openURL(verifyURL)
-
-	interval := time.Duration(d.Interval) * time.Second
-	if interval < time.Second {
-		interval = 5 * time.Second
+	challenge := codeChallenge(verifier)
+	state, err := genState()
+	if err != nil {
+		return loginResult{}, fmt.Errorf("generate state: %w", err)
 	}
 
-	body := map[string]string{"device_code": d.DeviceCode}
-	fmt.Print("  Waiting for approval")
-	for {
+	// Start the loopback callback server on an OS-assigned port.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return loginResult{}, fmt.Errorf("start loopback listener: %w", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+
+	resultCh := make(chan callbackResult, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", func(w http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		code, st := q.Get("code"), q.Get("state")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if code == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, "login failed: no authorization code received. You can close this tab.")
+			return
+		}
+		_, _ = io.WriteString(w, "Login complete. You can close this tab and return to the terminal.")
 		select {
-		case <-ctx.Done():
-			fmt.Println()
-			return loginResult{}, ctx.Err()
-		case <-time.After(interval):
-		}
-		tokResp, err := postJSON[deviceTokenResp](ctx, hc, authBase+"/api/v1/auth/device/token", body, "")
-		if err != nil {
-			fmt.Print(".")
-			continue
-		}
-		switch tokResp.Data.Status {
-		case "pending", "slow_down":
-			fmt.Print(".")
-			continue
-		case "approved":
-			fmt.Println(" ok")
-			access, refresh := tokResp.Data.AccessToken, tokResp.Data.RefreshToken
-			cfg, err := fetchConfig(ctx, hc, centerEdge, access)
-			if err != nil {
-				return loginResult{}, fmt.Errorf("fetch edge config: %w", err)
-			}
-			return loginResult{access: access, refresh: refresh, edgeID: cfg.EdgeID, secret: []byte(cfg.TokenSecret)}, nil
-		case "denied":
-			fmt.Println()
-			return loginResult{}, errors.New("authorization denied")
-		case "expired":
-			fmt.Println()
-			return loginResult{}, errors.New("the code expired before approval")
+		case resultCh <- callbackResult{code: code, state: st}:
 		default:
-			fmt.Println()
-			return loginResult{}, fmt.Errorf("unexpected status %q", tokResp.Data.Status)
 		}
+	})
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 15 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	// Build the browser authorization URL.
+	authURL := buildAuthorizeURL(centerWebBase, challenge, redirectURI, state, dk.publicKeyB64())
+	fmt.Println()
+	fmt.Println("  To authorize this edge, open this URL in your browser:")
+	fmt.Printf("    %s\n", authURL)
+	fmt.Println()
+	openURL(authURL)
+	fmt.Print("  Waiting for authorization in the browser…")
+
+	// Block on the callback (with ctx + a timeout).
+	timeout := time.NewTimer(loginTimeout)
+	defer timeout.Stop()
+	var cb callbackResult
+	select {
+	case <-ctx.Done():
+		fmt.Println()
+		return loginResult{}, ctx.Err()
+	case <-timeout.C:
+		fmt.Println()
+		return loginResult{}, errors.New("timed out waiting for browser authorization")
+	case cb = <-resultCh:
 	}
+	fmt.Println(" ok")
+
+	if cb.state != state {
+		return loginResult{}, errors.New("state mismatch (possible CSRF); aborting login")
+	}
+
+	// Exchange the authorization code for tokens.
+	tokResp, err := postJSON[cliTokenResp](ctx, hc, authBase+"/api/v1/auth/cli/token", map[string]string{
+		"grant_type":    "authorization_code",
+		"code":          cb.code,
+		"code_verifier": verifier,
+		"redirect_uri":  redirectURI,
+	}, "")
+	if err != nil {
+		return loginResult{}, fmt.Errorf("exchange authorization code: %w", err)
+	}
+	access, refresh := tokResp.tokens()
+	if access == "" {
+		return loginResult{}, errors.New("center returned an empty access token")
+	}
+
+	cfg, err := fetchConfig(ctx, hc, centerEdge, access)
+	if err != nil {
+		return loginResult{}, fmt.Errorf("fetch edge config: %w", err)
+	}
+	return loginResult{access: access, refresh: refresh, edgeID: cfg.EdgeID, secret: []byte(cfg.TokenSecret)}, nil
+}
+
+// genVerifier returns a PKCE code_verifier: 43-char base64url (no padding) of 32
+// random bytes.
+func genVerifier() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// codeChallenge returns base64url(sha256(verifier)) (PKCE S256).
+func codeChallenge(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+// genState returns base64url(16 random bytes), echoed back by the callback and
+// checked by the edge.
+func genState() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// buildAuthorizeURL composes <centerWebBase>/cli/authorize?... per the contract.
+func buildAuthorizeURL(centerWebBase, challenge, redirectURI, state, devicePubB64 string) string {
+	q := url.Values{}
+	q.Set("response_type", "code")
+	q.Set("code_challenge", challenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("redirect_uri", redirectURI)
+	q.Set("state", state)
+	q.Set("device_pubkey", devicePubB64)
+	if host, err := os.Hostname(); err == nil && host != "" {
+		q.Set("name", host)
+	}
+	return strings.TrimRight(centerWebBase, "/") + "/cli/authorize?" + q.Encode()
 }
 
 // fetchConfig calls GET /edge/v1/config with the owner JWT and returns the

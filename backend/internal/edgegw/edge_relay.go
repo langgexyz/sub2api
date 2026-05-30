@@ -3,6 +3,7 @@ package edgegw
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -29,6 +30,10 @@ type EdgeRelay struct {
 	maxFailover int
 	maxBodyByte int64
 	now         Clock
+
+	// deviceKey, if non-nil, signs bound refresh requests with the per-machine
+	// Ed25519 private key (see owner_token.go signDeviceRequest). Nil => unbound.
+	deviceKey ed25519.PrivateKey
 
 	// onRefresh, if set, is called whenever the owner access/refresh pair is
 	// rotated (login or auto-refresh) so the caller can persist it. Set via
@@ -66,6 +71,10 @@ type EdgeConfig struct {
 	MaxFailover       int
 	MaxBodyByte       int64 // max client request body; 0 => 32 MiB default
 	Now               Clock
+
+	// DeviceKey, if set, is the per-machine Ed25519 private key the edge signs
+	// bound refresh requests with. Nil => unbound (refresh sent unsigned).
+	DeviceKey ed25519.PrivateKey
 }
 
 // NewEdgeRelay builds an edge relay.
@@ -105,6 +114,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 		upstream:    up,
 		maxFailover: mf,
 		maxBodyByte: maxBody,
+		deviceKey:   cfg.DeviceKey,
 		now:         now,
 	}
 }

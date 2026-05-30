@@ -4,16 +4,19 @@
 // console:
 //
 //	edge                    # start serving + console; if not logged in, prompts login
-//	  /login                # browser device login (RFC 8628); creds saved locally
+//	  /login                # browser loopback + PKCE login; creds saved locally
 //	  /logout               # revoke + clear local creds (relay stops serving)
 //	  /status               # owner, center, edge id, listen addr, token validity
 //	  /quit                 # graceful shutdown
 //
-// Login uses the OAuth device flow: the console prints a short code and opens the
-// browser to the center's /device page (already logged in there); on approval
-// the tokens flow back here and are saved to ~/.config/sub2api-edge/session.json
-// (0600). Only the owner token pair is stored — the edge id and lease-token seal
-// secret are fetched from the center at runtime. See docs/tech/distributed-edge.md.
+// Login uses loopback + PKCE + a per-machine device key: the console opens the
+// browser to the center's /cli/authorize page (already logged in there); on
+// approval the authorization code is delivered to a localhost callback server,
+// exchanged for tokens, and saved to ~/.config/sub2api-edge/session.json (0600).
+// The device key (~/.config/sub2api-edge/device_key, 0600) binds the refresh
+// token to this machine. Only the owner token pair is stored — the edge id and
+// lease-token seal secret are fetched from the center at runtime. See
+// docs/tech/ccdirect-auth-contract.md and docs/tech/distributed-edge.md.
 package main
 
 import (
@@ -52,6 +55,7 @@ type edgeApp struct {
 	httpClient  *http.Client
 	sessionPath string
 	addr        string
+	deviceKey   deviceKey
 }
 
 func runServe(args []string) {
@@ -73,6 +77,16 @@ func runServe(args []string) {
 	}
 	sess, _ := enroll.LoadSession(sessionPath)
 
+	// Load (or create) the per-machine device key. The center binds the refresh
+	// token to its public key; refreshOwner signs bound refresh requests with the
+	// private key. A failure here is non-fatal: refresh just runs unsigned (and
+	// any bound token will be rejected until a successful /login rebinds).
+	dkPath, _ := deviceKeyPath(sessionPath)
+	dk, dkErr := loadOrCreateDeviceKey(dkPath)
+	if dkErr != nil {
+		log.Printf("edge: warning: device key unavailable (%v); refresh will be unsigned", dkErr)
+	}
+
 	relay := edgegw.NewEdgeRelay(edgegw.EdgeConfig{
 		InternalKey:       cfg.internalKey,
 		OwnerAccessToken:  sess.OwnerAccess,
@@ -81,6 +95,7 @@ func runServe(args []string) {
 		CenterHTTP:        centerClient,
 		Upstream:          upstreamClient,
 		MaxFailover:       cfg.maxFailover,
+		DeviceKey:         dk.priv,
 	})
 
 	app := &edgeApp{
@@ -90,6 +105,7 @@ func runServe(args []string) {
 		httpClient:  centerClient,
 		sessionPath: sessionPath,
 		addr:        cfg.addr,
+		deviceKey:   dk,
 	}
 	// Persist rotated tokens (login + auto-refresh) so a restart keeps the
 	// session. Empty pair clears the file (logout).
@@ -171,9 +187,11 @@ func (app *edgeApp) activate(ctx context.Context) error {
 	return nil
 }
 
-// doLogin runs the device flow and installs the result into the relay.
+// doLogin runs the loopback + PKCE + device-key login and installs the result
+// into the relay. authBase is the sub2api API root; it is also the web origin
+// that serves the /cli/authorize SPA route.
 func (app *edgeApp) doLogin(ctx context.Context) error {
-	res, err := deviceLogin(ctx, app.httpClient, app.authBase, app.centerEdge)
+	res, err := loopbackLogin(ctx, app.httpClient, app.authBase, app.authBase, app.centerEdge, app.deviceKey)
 	if err != nil {
 		return err
 	}
