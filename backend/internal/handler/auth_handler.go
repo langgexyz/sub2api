@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -30,6 +31,11 @@ type AuthHandler struct {
 
 	dingTalkClientInstance *DingTalkClient
 	dingTalkClientMu       sync.Mutex
+
+	// deviceStore backs the RFC 8628 device-authorization flow used by the edge
+	// CLI login. In-memory, short-TTL; created here so the constructor signature
+	// (and wire wiring) is unchanged.
+	deviceStore *deviceCodeStore
 }
 
 // NewAuthHandler creates a new AuthHandler
@@ -43,6 +49,7 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userSe
 		redeemService:        redeemService,
 		totpService:          totpService,
 		userAttributeService: userAttributeService,
+		deviceStore:          newDeviceCodeStore(10*time.Minute, 5*time.Second, time.Now),
 	}
 }
 
