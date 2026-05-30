@@ -426,6 +426,10 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
+	// Overlay custom (non-LiteLLM) model prices so they survive every remote
+	// feed update. See pricing_custom.go.
+	mergeCustomPricing(result)
+
 	return result, nil
 }
 
