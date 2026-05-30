@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -39,8 +40,23 @@ type EdgeCenterHandler struct {
 
 	edges *edgereg.Registry
 
+	// Optional: when set, lease tokens are AEAD-sealed bound to {edgeID, exp}
+	// instead of returned raw (defense-in-depth; see edgegw.SealLeaseToken).
+	tokenSecret []byte
+	tokenTTL    time.Duration
+
 	mu    sync.Mutex
 	slots map[string]*leasedSlot
+}
+
+// SetTokenSeal enables sealed lease tokens with the given shared secret + TTL
+// (the edge must be configured with the same secret to open them).
+func (h *EdgeCenterHandler) SetTokenSeal(secret []byte, ttl time.Duration) {
+	if ttl <= 0 {
+		ttl = 2 * time.Minute
+	}
+	h.tokenSecret = secret
+	h.tokenTTL = ttl
 }
 
 type leasedSlot struct {
@@ -65,13 +81,23 @@ func NewEdgeCenterHandler(
 	gatewayService *service.GatewayService,
 	billingService *service.BillingCacheService,
 ) *EdgeCenterHandler {
-	return &EdgeCenterHandler{
+	h := &EdgeCenterHandler{
 		apiKeyService:  apiKeyService,
 		gatewayService: gatewayService,
 		billingService: billingService,
 		edges:          edgereg.New(60*time.Second, time.Now),
 		slots:          make(map[string]*leasedSlot),
 	}
+	if secret := os.Getenv("EDGE_TOKEN_SECRET"); secret != "" {
+		ttl := 2 * time.Minute
+		if v := os.Getenv("EDGE_TOKEN_TTL"); v != "" {
+			if d, err := time.ParseDuration(v); err == nil {
+				ttl = d
+			}
+		}
+		h.SetTokenSeal([]byte(secret), ttl)
+	}
+	return h
 }
 
 // Register records an edge in the fleet (auto-detecting its egress IP).
@@ -169,6 +195,18 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 		release()
 		edgeCenterError(c, http.StatusServiceUnavailable, "no_account", err.Error())
 		return
+	}
+
+	// Seal the upstream token bound to this edge + a short TTL (defense-in-depth)
+	// when a seal secret is configured; otherwise it is returned raw (dev).
+	if len(h.tokenSecret) > 0 && cand.LeaseToken != "" {
+		sealed, sErr := edgegw.SealLeaseToken(cand.LeaseToken, req.EdgeID, h.tokenTTL, h.tokenSecret, time.Now)
+		if sErr != nil {
+			release()
+			edgeCenterError(c, http.StatusInternalServerError, "seal_failed", sErr.Error())
+			return
+		}
+		cand.LeaseToken = sealed
 	}
 
 	slotID := newSlotID()

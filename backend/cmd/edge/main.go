@@ -126,6 +126,7 @@ func runServe(args []string) {
 	tlsKey := fs.String("tls-key", env("EDGE_TLS_KEY", ""), "client key PEM for mTLS to center [EDGE_TLS_KEY]")
 	tlsServerCA := fs.String("tls-server-ca", env("EDGE_TLS_SERVER_CA", ""), "CA PEM that signs the center cert [EDGE_TLS_SERVER_CA]")
 	internalKey := fs.String("internal-key", env("EDGE_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [EDGE_INTERNAL_KEY]")
+	tokenSecret := fs.String("token-secret", env("EDGE_TOKEN_SECRET", ""), "shared secret to open sealed lease tokens; must match the center [EDGE_TOKEN_SECRET]")
 	_ = fs.Parse(args)
 
 	upstreamClient, err := edgegw.NewUpstreamClient(*upstreamProxy, *upstreamTimeout)
@@ -147,6 +148,7 @@ func runServe(args []string) {
 		EdgeID:      *edgeID,
 		EnrollKey:   *enrollKey,
 		InternalKey: *internalKey,
+		TokenSecret: []byte(*tokenSecret),
 		CenterURL:   *center,
 		CenterHTTP:  centerClient,
 		Upstream:    upstreamClient,

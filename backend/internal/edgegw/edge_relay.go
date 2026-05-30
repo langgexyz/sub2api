@@ -22,6 +22,7 @@ type EdgeRelay struct {
 	edgeID      string
 	enrollKey   string
 	internalKey string
+	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
 	centerURL   string
 	centerHTTP  *http.Client
 	upstream    *http.Client
@@ -38,6 +39,9 @@ type EdgeConfig struct {
 	// empty, /internal/egress is disabled (denied) -- it must be explicitly
 	// enabled with a shared secret to avoid an SSRF/credential-relay hole.
 	InternalKey string
+	// TokenSecret is the shared secret used to OPEN sealed lease tokens. Must
+	// match the center's seal secret. Empty means the center returns raw tokens.
+	TokenSecret []byte
 	CenterURL   string // base URL of the center, e.g. http://center:9000
 	CenterHTTP  *http.Client
 	Upstream    *http.Client
@@ -72,6 +76,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 		edgeID:      cfg.EdgeID,
 		enrollKey:   cfg.EnrollKey,
 		internalKey: cfg.InternalKey,
+		tokenSecret: cfg.TokenSecret,
 		centerURL:   strings.TrimRight(cfg.CenterURL, "/"),
 		centerHTTP:  ch,
 		upstream:    up,
@@ -79,6 +84,17 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 		maxBodyByte: maxBody,
 		now:         now,
 	}
+}
+
+// unwrapToken resolves the real upstream credential from a lease token. When a
+// token secret is configured the token is an AEAD-sealed envelope bound to this
+// edge + an expiry (OpenLeaseToken); otherwise it is raw (or a PoC HMAC
+// envelope handled by UpstreamBearer).
+func (e *EdgeRelay) unwrapToken(leaseToken string) (string, error) {
+	if len(e.tokenSecret) > 0 {
+		return OpenLeaseToken(leaseToken, e.edgeID, e.tokenSecret, e.now)
+	}
+	return UpstreamBearer(leaseToken), nil
 }
 
 // Handler returns the edge's HTTP mux. It accepts the upstream-compatible paths
@@ -198,10 +214,17 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 			err = buildErr
 			continue
 		}
+		// Resolve the real upstream credential from the lease token (AEAD-sealed
+		// when a token secret is configured, else raw/HMAC-enveloped). A token
+		// that fails to open (wrong edge / expired / tampered) drops this candidate.
+		bearer, uerr := e.unwrapToken(cand.LeaseToken)
+		if uerr != nil {
+			err = uerr
+			continue
+		}
 		copyForwardHeaders(r.Header, upReq.Header)
 		// Present the leased credential per the account's auth scheme.
-		// UpstreamBearer unwraps the minted envelope to the real upstream token.
-		cand.AuthScheme.apply(upReq, UpstreamBearer(cand.LeaseToken))
+		cand.AuthScheme.apply(upReq, bearer)
 		upReq.Header.Set("X-Edge-Id", e.edgeID)
 
 		resp, doErr := e.upstream.Do(upReq)
