@@ -103,6 +103,28 @@ func registerRoutes(
 	// 通用路由（健康检查、状态等）
 	routes.RegisterCommonRoutes(r)
 
+	// Distributed-edge control plane: edges call these to lease a real account
+	// (+ upstream token/endpoint) and settle it. Mounted off /edge to avoid
+	// colliding with the gateway's own /v1/* surface.
+	if h.EdgeCenter != nil {
+		edge := r.Group("/edge/v1")
+		// Enforce mutual TLS on the edge control plane when a client CA is
+		// configured (EDGE_MTLS_CLIENT_CA) — only certificate-bearing edges may
+		// lease tokens. No-op in dev (no CA).
+		if guard, err := handler.NewEdgeMTLSGuard(); err != nil {
+			log.Fatalf("edge mTLS guard: %v", err)
+		} else if guard.Enabled() {
+			edge.Use(guard.Middleware())
+			log.Println("edge control plane: mTLS enforcement enabled")
+		}
+		edge.POST("/enroll", h.EdgeCenter.Enroll)
+		edge.POST("/lease", h.EdgeCenter.Lease)
+		edge.POST("/settle", h.EdgeCenter.Settle)
+		edge.POST("/register", h.EdgeCenter.Register)
+		edge.POST("/heartbeat", h.EdgeCenter.Heartbeat)
+		edge.GET("/edges", h.EdgeCenter.Edges)
+	}
+
 	// API v1
 	v1 := r.Group("/api/v1")
 
