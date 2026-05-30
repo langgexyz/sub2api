@@ -390,15 +390,14 @@ export default {
     riskControl: 'Risk Control',
   },
 
-  deviceAuthorization: {
-    title: 'Authorize Device',
-    description: 'A command-line tool is requesting access to your account. Enter the code shown in your terminal to authorize it.',
-    codeLabel: 'Device code',
-    codePlaceholder: 'XXXX-XXXX',
-    approveButton: 'Authorize',
-    approved: 'Device authorized. You can return to your terminal.',
-    invalidCode: 'This code is invalid or has expired. Start a new login in your terminal.',
-    approveFailed: 'Authorization failed. Please try again.'
+  cliAuthorize: {
+    title: 'Authorize CLI',
+    prompt: 'Authorize ccdirect on this machine?',
+    deviceLabel: 'Device',
+    authorizeButton: 'Authorize',
+    cancelButton: 'Cancel',
+    authorizing: 'Authorizing...',
+    failed: 'Authorization failed. Please try again.'
   },
   // Auth
   auth: {

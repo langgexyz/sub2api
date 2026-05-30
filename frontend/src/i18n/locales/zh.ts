@@ -390,15 +390,14 @@ export default {
     riskControl: '风控中心',
   },
 
-  deviceAuthorization: {
-    title: '授权设备',
-    description: '一个命令行工具正在请求访问你的账户。输入终端中显示的授权码以授权它。',
-    codeLabel: '设备授权码',
-    codePlaceholder: 'XXXX-XXXX',
-    approveButton: '授权',
-    approved: '设备已授权，可以回到终端继续操作。',
-    invalidCode: '授权码无效或已过期，请在终端重新发起登录。',
-    approveFailed: '授权失败，请重试。'
+  cliAuthorize: {
+    title: '授权命令行',
+    prompt: '允许 ccdirect 在此设备上登录？',
+    deviceLabel: '设备',
+    authorizeButton: '授权',
+    cancelButton: '取消',
+    authorizing: '授权中...',
+    failed: '授权失败，请重试。'
   },
   // Auth
   auth: {
