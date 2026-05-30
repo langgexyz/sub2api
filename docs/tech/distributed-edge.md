@@ -35,6 +35,21 @@ edge (data plane):
 - 流式中继 + 从流计 token
 - 把用量回报中心 settle
 
+**edge 资源依赖(刻意做到最小):edge 是纯无状态进程,零基础设施。**
+
+| 资源 | 依赖 | 说明 |
+|---|---|---|
+| PostgreSQL | 否 | 账号/key/用量全在中心 DB,edge 从不连 |
+| Redis | 否 | 并发槽/粘性/配额缓存都在中心,edge 不连 |
+| 本地磁盘 | 几乎否 | 仅 enroll 后一个小 state 文件(`edge.json`,可选);lease token 用完即弃不落盘 |
+| 中心 sub2api | 是(唯一) | `/edge/v1/{lease,settle,register,heartbeat}` HTTP |
+| 上游 provider | 是 | 直连 MiMo/Anthropic/OpenAI(本职) |
+| 出口代理 | 是(中心下发) | 出口代理 URL 由中心 enroll 下发(给稳定出口 IP),非 edge 本地选配 |
+
+含义:edge 部署极轻 = 一个二进制 + 一个 enroll token,VPS 拉起即用,无需装 PG/Redis;挂了重装零数据损失(有状态的一切都在中心)。
+
+**edge 侧零手工配置原则:edge 的运行参数全部由中心 enroll 下发**——token-secret(seal 密钥)、mTLS 证书、出口代理 URL、心跳间隔、failover 数、platforms 等,enroll 时一次性从中心取回并持久化;edge 命令行只需一个 enroll token。本地 flag 仅作开发期 override 存在。这也是 §8「edge 无状态可替换」的前提。
+
 ## 4. 请求时序
 
 ```
