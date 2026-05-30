@@ -236,8 +236,13 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 // context so it is independent of the settle request's lifetime.
 func (h *EdgeCenterHandler) recordSettleUsage(slot *leasedSlot, req edgegw.SettleRequest) {
 	result := &service.ForwardResult{
-		RequestID:     req.RequestID,
-		Usage:         service.ClaudeUsage{InputTokens: req.InputTokens, OutputTokens: req.OutputTokens},
+		RequestID: req.RequestID,
+		Usage: service.ClaudeUsage{
+			InputTokens:              req.InputTokens,
+			OutputTokens:             req.OutputTokens,
+			CacheReadInputTokens:     req.CacheReadTokens,
+			CacheCreationInputTokens: req.CacheCreationTokens,
+		},
 		Model:         slot.model,
 		UpstreamModel: slot.upstreamModel,
 		Stream:        slot.stream,

@@ -130,10 +130,32 @@ func rewriteGeminiPath(path, mappedModel string) string {
 
 // --- usage parsing ---
 
+// Usage is the token usage the edge extracts from an upstream response and
+// reports back to the center for billing (input/output + cache tokens).
+type Usage struct {
+	Input         int
+	Output        int
+	CacheRead     int
+	CacheCreation int
+}
+
+func (u Usage) merge(o Usage) Usage {
+	return Usage{
+		Input:         max2(u.Input, o.Input),
+		Output:        max2(u.Output, o.Output),
+		CacheRead:     max2(u.CacheRead, o.CacheRead),
+		CacheCreation: max2(u.CacheCreation, o.CacheCreation),
+	}
+}
+
+func (u Usage) any() bool {
+	return u.Input > 0 || u.Output > 0 || u.CacheRead > 0 || u.CacheCreation > 0
+}
+
 // UsageParser observes response bytes (teed by the edge) and reports usage.
 type UsageParser interface {
 	Write(p []byte) (int, error)
-	Usage() (in, out int)
+	Usage() Usage
 }
 
 // newUsageParser returns a streaming SSE scanner or a buffering JSON parser.
@@ -149,13 +171,13 @@ type jsonUsageParser struct{ buf bytes.Buffer }
 
 func (p *jsonUsageParser) Write(b []byte) (int, error) { return p.buf.Write(b) }
 
-func (p *jsonUsageParser) Usage() (int, int) {
+func (p *jsonUsageParser) Usage() Usage {
 	var obj map[string]any
 	if err := json.Unmarshal(p.buf.Bytes(), &obj); err != nil {
-		return 0, 0
+		return Usage{}
 	}
-	in, out, _ := extractUsageAny(obj)
-	return in, out
+	u, _ := extractUsageAny(obj)
+	return u
 }
 
 // sseUsageParser scans `data:` lines as they stream by, parsing each JSON
@@ -164,8 +186,7 @@ func (p *jsonUsageParser) Usage() (int, int) {
 // usage in the final chunk).
 type sseUsageParser struct {
 	pending bytes.Buffer
-	maxIn   int
-	maxOut  int
+	max     Usage
 }
 
 func (p *sseUsageParser) Write(b []byte) (int, error) {
@@ -195,23 +216,18 @@ func (p *sseUsageParser) scanLine(line string) {
 	if err := json.Unmarshal([]byte(line), &obj); err != nil {
 		return
 	}
-	if in, out, ok := extractUsageAny(obj); ok {
-		if in > p.maxIn {
-			p.maxIn = in
-		}
-		if out > p.maxOut {
-			p.maxOut = out
-		}
+	if u, ok := extractUsageAny(obj); ok {
+		p.max = p.max.merge(u)
 	}
 }
 
-func (p *sseUsageParser) Usage() (int, int) {
+func (p *sseUsageParser) Usage() Usage {
 	// Flush any trailing line without a newline.
 	if p.pending.Len() > 0 {
 		p.scanLine(p.pending.String())
 		p.pending.Reset()
 	}
-	return p.maxIn, p.maxOut
+	return p.max
 }
 
 // extractUsageAny finds token usage across the shapes used by every supported
@@ -219,33 +235,58 @@ func (p *sseUsageParser) Usage() (int, int) {
 // or response), OpenAI chat (usage.prompt_tokens/completion_tokens), OpenAI
 // responses (usage.input_tokens/output_tokens), Gemini (usageMetadata.
 // promptTokenCount/candidatesTokenCount).
-func extractUsageAny(obj map[string]any) (in, out int, found bool) {
+// NOTE: This is a faithful, edge-local MIRROR of sub2api's per-protocol usage
+// parsing (which lives case-by-case inside the gateway services, e.g.
+// GatewayService.parseSSEUsagePassthrough and the openai/antigravity equivalents
+// -- there is no standalone protocol usage-parser to import). The edge is a
+// separate process and intentionally does not depend on the sub2api core, so it
+// keeps its own parser. Keep these field conventions in sync with sub2api's:
+// Anthropic input_tokens/output_tokens/cache_read_input_tokens/
+// cache_creation_input_tokens; OpenAI prompt_tokens/completion_tokens +
+// {prompt,input}_tokens_details.cached_tokens; Gemini usageMetadata.*.
+func extractUsageAny(obj map[string]any) (Usage, bool) {
 	if obj == nil {
-		return 0, 0, false
+		return Usage{}, false
 	}
+	var u Usage
+	found := false
 	// Unwrap common envelopes.
 	for _, key := range []string{"message", "response"} {
 		if nested, ok := obj[key].(map[string]any); ok {
-			if i, o, f := extractUsageAny(nested); f {
-				in, out, found = max2(in, i), max2(out, o), true
+			if nu, f := extractUsageAny(nested); f {
+				u, found = u.merge(nu), true
 			}
 		}
 	}
-	if u, ok := obj["usage"].(map[string]any); ok {
-		i := firstInt(u, "input_tokens", "prompt_tokens")
-		o := firstInt(u, "output_tokens", "completion_tokens")
-		if i > 0 || o > 0 {
-			in, out, found = max2(in, i), max2(out, o), true
+	if usage, ok := obj["usage"].(map[string]any); ok {
+		got := Usage{
+			Input:         firstInt(usage, "input_tokens", "prompt_tokens"),
+			Output:        firstInt(usage, "output_tokens", "completion_tokens"),
+			CacheRead:     firstInt(usage, "cache_read_input_tokens"),
+			CacheCreation: firstInt(usage, "cache_creation_input_tokens"),
+		}
+		// OpenAI nests cached tokens under {prompt,input}_tokens_details.cached_tokens.
+		if d, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+			got.CacheRead = max2(got.CacheRead, firstInt(d, "cached_tokens"))
+		}
+		if d, ok := usage["input_tokens_details"].(map[string]any); ok {
+			got.CacheRead = max2(got.CacheRead, firstInt(d, "cached_tokens"))
+		}
+		if got.any() {
+			u, found = u.merge(got), true
 		}
 	}
-	if u, ok := obj["usageMetadata"].(map[string]any); ok {
-		i := firstInt(u, "promptTokenCount")
-		o := firstInt(u, "candidatesTokenCount")
-		if i > 0 || o > 0 {
-			in, out, found = max2(in, i), max2(out, o), true
+	if m, ok := obj["usageMetadata"].(map[string]any); ok {
+		got := Usage{
+			Input:     firstInt(m, "promptTokenCount"),
+			Output:    firstInt(m, "candidatesTokenCount"),
+			CacheRead: firstInt(m, "cachedContentTokenCount"),
+		}
+		if got.any() {
+			u, found = u.merge(got), true
 		}
 	}
-	return in, out, found
+	return u, found
 }
 
 func firstInt(m map[string]any, keys ...string) int {

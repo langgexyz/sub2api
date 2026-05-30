@@ -140,21 +140,23 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Forward upstream, failing over locally down the ranked candidates.
 	start := e.now()
-	used, code, inTok, outTok, streamed, ferr := e.forward(r, w, body, model, lease)
+	used, code, usage, streamed, ferr := e.forward(r, w, body, model, lease)
 	latency := e.now().Sub(start).Milliseconds()
 
 	// 3. Settle: report usage so the center reconciles quota + releases the slot.
 	settle := SettleRequest{
-		RequestID:    requestID,
-		APIKey:       apiKey,
-		AccountID:    used.AccountID,
-		SlotID:       lease.SlotID,
-		SessionHash:  sessionHash,
-		InputTokens:  inTok,
-		OutputTokens: outTok,
-		StatusCode:   code,
-		LatencyMS:    latency,
-		Partial:      ferr != nil && streamed,
+		RequestID:           requestID,
+		APIKey:              apiKey,
+		AccountID:           used.AccountID,
+		SlotID:              lease.SlotID,
+		SessionHash:         sessionHash,
+		InputTokens:         usage.Input,
+		OutputTokens:        usage.Output,
+		CacheReadTokens:     usage.CacheRead,
+		CacheCreationTokens: usage.CacheCreation,
+		StatusCode:          code,
+		LatencyMS:           latency,
+		Partial:             ferr != nil && streamed,
 	}
 	// Settle on a fresh context: the client request context may be done once we
 	// finish streaming, but the slot still must be released.
@@ -169,7 +171,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 // already started (after which failover is unsafe). Returns the used candidate,
 // the upstream status code, token usage, whether bytes were written to the
 // client, and any terminal error.
-func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte, reqModel string, lease *LeaseResult) (used Candidate, code, inTok, outTok int, streamed bool, err error) {
+func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte, reqModel string, lease *LeaseResult) (used Candidate, code int, usage Usage, streamed bool, err error) {
 	limit := e.maxFailover
 	if limit > len(lease.Candidates) {
 		limit = len(lease.Candidates)
@@ -225,20 +227,20 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		streamed = true
 		_, copyErr := io.Copy(newFlushWriter(w), io.TeeReader(resp.Body, parser))
 		_ = resp.Body.Close()
-		inTok, outTok = parser.Usage()
-		if inTok == 0 && outTok == 0 {
-			inTok, outTok = readUsageHeaders(resp.Header)
+		usage = parser.Usage()
+		if !usage.any() {
+			usage = readUsageHeaders(resp.Header)
 		}
 		if copyErr != nil {
 			err = copyErr
-			return used, code, inTok, outTok, streamed, err
+			return used, code, usage, streamed, err
 		}
-		return used, code, inTok, outTok, streamed, nil
+		return used, code, usage, streamed, nil
 	}
 	if err == nil {
 		err = ErrNoAccount
 	}
-	return used, code, inTok, outTok, streamed, err
+	return used, code, usage, streamed, err
 }
 
 func (e *EdgeRelay) callLease(ctx context.Context, req LeaseRequest) (*LeaseResult, int, error) {
@@ -342,10 +344,12 @@ func newID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func readUsageHeaders(h http.Header) (in, out int) {
-	in, _ = strconv.Atoi(h.Get("X-Usage-Input-Tokens"))
-	out, _ = strconv.Atoi(h.Get("X-Usage-Output-Tokens"))
-	return in, out
+func readUsageHeaders(h http.Header) Usage {
+	in, _ := strconv.Atoi(h.Get("X-Usage-Input-Tokens"))
+	out, _ := strconv.Atoi(h.Get("X-Usage-Output-Tokens"))
+	cr, _ := strconv.Atoi(h.Get("X-Usage-Cache-Read-Tokens"))
+	cc, _ := strconv.Atoi(h.Get("X-Usage-Cache-Creation-Tokens"))
+	return Usage{Input: in, Output: out, CacheRead: cr, CacheCreation: cc}
 }
 
 // hopByHopHeaders are dropped when forwarding upstream. Besides the standard

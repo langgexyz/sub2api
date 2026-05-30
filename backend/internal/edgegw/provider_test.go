@@ -96,57 +96,57 @@ func TestAuthScheme_Apply(t *testing.T) {
 
 func TestUsageParser_AnthropicNonStream(t *testing.T) {
 	p := newUsageParser(false)
-	_, _ = p.Write([]byte(`{"type":"message","usage":{"input_tokens":50,"output_tokens":120}}`))
-	in, out := p.Usage()
-	if in != 50 || out != 120 {
-		t.Fatalf("anthropic json usage: in=%d out=%d", in, out)
+	_, _ = p.Write([]byte(`{"type":"message","usage":{"input_tokens":50,"output_tokens":120,"cache_read_input_tokens":192,"cache_creation_input_tokens":7}}`))
+	u := p.Usage()
+	if u.Input != 50 || u.Output != 120 || u.CacheRead != 192 || u.CacheCreation != 7 {
+		t.Fatalf("anthropic json usage: %+v", u)
 	}
 }
 
 func TestUsageParser_AnthropicSSE(t *testing.T) {
 	p := newUsageParser(true)
 	stream := "event: message_start\n" +
-		`data: {"type":"message_start","message":{"usage":{"input_tokens":42,"output_tokens":1}}}` + "\n\n" +
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":42,"output_tokens":1,"cache_read_input_tokens":192}}}` + "\n\n" +
 		"event: message_delta\n" +
 		`data: {"type":"message_delta","usage":{"output_tokens":99}}` + "\n\n" +
 		"data: [DONE]\n\n"
 	_, _ = p.Write([]byte(stream))
-	in, out := p.Usage()
-	if in != 42 || out != 99 {
-		t.Fatalf("anthropic sse usage: in=%d out=%d", in, out)
+	u := p.Usage()
+	if u.Input != 42 || u.Output != 99 || u.CacheRead != 192 {
+		t.Fatalf("anthropic sse usage: %+v", u)
 	}
 }
 
 func TestUsageParser_OpenAIChatNonStream(t *testing.T) {
 	p := newUsageParser(false)
-	_, _ = p.Write([]byte(`{"usage":{"prompt_tokens":33,"completion_tokens":77}}`))
-	in, out := p.Usage()
-	if in != 33 || out != 77 {
-		t.Fatalf("openai chat usage: in=%d out=%d", in, out)
+	_, _ = p.Write([]byte(`{"usage":{"prompt_tokens":33,"completion_tokens":77,"prompt_tokens_details":{"cached_tokens":16}}}`))
+	u := p.Usage()
+	if u.Input != 33 || u.Output != 77 || u.CacheRead != 16 {
+		t.Fatalf("openai chat usage: %+v", u)
 	}
 }
 
 func TestUsageParser_OpenAIResponsesSSE(t *testing.T) {
 	p := newUsageParser(true)
-	stream := `data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":20}}}` + "\n\n"
+	stream := `data: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":20,"input_tokens_details":{"cached_tokens":4}}}}` + "\n\n"
 	_, _ = p.Write([]byte(stream))
-	in, out := p.Usage()
-	if in != 10 || out != 20 {
-		t.Fatalf("openai responses usage: in=%d out=%d", in, out)
+	u := p.Usage()
+	if u.Input != 10 || u.Output != 20 || u.CacheRead != 4 {
+		t.Fatalf("openai responses usage: %+v", u)
 	}
 }
 
 func TestUsageParser_GeminiNonStreamAndSSE(t *testing.T) {
 	p := newUsageParser(false)
-	_, _ = p.Write([]byte(`{"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":15}}`))
-	if in, out := p.Usage(); in != 5 || out != 15 {
-		t.Fatalf("gemini json usage: in=%d out=%d", in, out)
+	_, _ = p.Write([]byte(`{"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":15,"cachedContentTokenCount":3}}`))
+	if u := p.Usage(); u.Input != 5 || u.Output != 15 || u.CacheRead != 3 {
+		t.Fatalf("gemini json usage: %+v", u)
 	}
 
 	ps := newUsageParser(true)
 	_, _ = ps.Write([]byte(`data: {"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}` + "\n\n"))
-	if in, out := ps.Usage(); in != 7 || out != 3 {
-		t.Fatalf("gemini sse usage: in=%d out=%d", in, out)
+	if u := ps.Usage(); u.Input != 7 || u.Output != 3 {
+		t.Fatalf("gemini sse usage: %+v", u)
 	}
 }
 
@@ -161,7 +161,7 @@ func TestUsageParser_SSEChunkedWrites(t *testing.T) {
 		}
 		_, _ = p.Write([]byte(full[i:end]))
 	}
-	if in, out := p.Usage(); in != 11 || out != 22 {
-		t.Fatalf("chunked sse usage: in=%d out=%d", in, out)
+	if u := p.Usage(); u.Input != 11 || u.Output != 22 {
+		t.Fatalf("chunked sse usage: %+v", u)
 	}
 }
