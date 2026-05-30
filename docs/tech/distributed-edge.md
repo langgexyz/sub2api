@@ -168,13 +168,16 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 原则:每项都接到 sub2api 已有能力上,`EdgeCenterHandler` / edge 只做薄扩展;OAuth 流程、加密、定价、并发 Redis 槽一律复用现成的。固定 key 类(MiMo)已完成,以下基本只属于 OAuth-refresh 类 + 两个 class-agnostic 加固。
 
-### P0 — OAuth 账号类支持(让 edge 也能服务 Claude/Codex/Gemini OAuth 账号)
+### P0 — Anthropic OAuth 账号经 edge(已落地)
 
-**边界:edge 纯消费方、对类型无感;改动只在 center,且只用 sub2api 现有公共 API(不改核心文件)。** token 解析已统一走 `GatewayService.GetAccessToken`(它内部已 dispatch apikey/oauth 并自动 refresh),所以 P0 不是「加 token provider」,而是补 `edge_center_handler.go: edgeAuthAndBase` 对 `tokenType="oauth"` 的映射:
+token 解析统一走 `GatewayService.GetAccessToken`(内部已 dispatch apikey/oauth + 自动 refresh)。`edge_center_handler.go: edgeAuthAndBase` 已补 `tokenType="oauth"`:Anthropic OAuth → `Authorization: Bearer <oauth token>` + base `https://api.anthropic.com`。
 
-- 扩展点(只在 center,新增文件内):oauth → `AuthScheme` 设 Bearer + 把 provider 需要的 anthropic-beta / Claude CLI 头放进 `Extra`;base URL 用平台默认(OAuth 账号 `GetBaseURL()` 返回空,需按 platform 给 `https://api.anthropic.com` 等)。
-- 复用:`GetAccessToken` 已覆盖 token 取值 + refresh;OAuth 授权/持久化全在 sub2api。edge 零改动。
-- 不改核心:全部落在 `edge_center_handler.go`(扩展),`gateway_service.go` 等核心文件不碰。
+**关键洞察:不需要中心注入 Claude Code 指纹头(anthropic-beta/user-agent/x-stainless-*)。** sub2api 只在 `mimicClaudeCode = IsOAuth && !isClaudeCode`(即客户端不是 Claude Code)时才注入;当**客户端本身就是 Claude Code**,它自带这些头,edge 原样转发(edge 只剥凭据头)。所以 OAuth 账号经 edge **支持 Claude Code 客户端**;非 Claude Code 客户端打 OAuth 账号仍需走中心网关。配套:edge 现保留客户端 query string(`?beta=true`)。
+
+- 改动只在扩展文件:`edge_center_handler.go`(oauth 映射)+ `edgegw/edge_relay.go`(转发 query)。`gateway_service.go` 等核心不碰。
+- 单测:`edgeAuthAndBase` 各分支(apikey anthropic/openai、oauth anthropic→Bearer+api.anthropic.com、非-anthropic oauth/未知类型 unsupported)+ edge query 转发 e2e。
+- **未 e2e 实测**:手头无可用的 Claude OAuth 账号(Docker 里的 Claude OAuth 账号上游凭据已失效);代码完成 + 单测覆盖,待用真实 Claude OAuth 账号 + Claude Code 客户端验证。
+- 后续:OpenAI/Gemini/Antigravity OAuth(各自 base + 指纹)、非-Claude-Code 客户端打 OAuth。
 
 ### P1 — center 的 refresh 经 home edge 出口(仅 OAuth 类、可选)
 - 边界重申:**刷新逻辑在 center,不在 edge**;edge 只是出借自己的稳定 IP 作出口代理。

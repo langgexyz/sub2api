@@ -183,8 +183,13 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		// Provider-aware request prep: model mapping lands in the body
 		// (Anthropic/OpenAI) or the URL path (Gemini).
 		upstreamPath, upstreamBody := provider.PrepareRequest(r.URL.Path, body, cand.MappedModel(reqModel))
+		upstreamURL := cand.UpstreamBaseURL + upstreamPath
+		// Preserve the client's query string (e.g. ?beta=true for Anthropic OAuth).
+		if r.URL.RawQuery != "" {
+			upstreamURL += "?" + r.URL.RawQuery
+		}
 		upReq, buildErr := http.NewRequestWithContext(r.Context(), http.MethodPost,
-			cand.UpstreamBaseURL+upstreamPath, bytes.NewReader(upstreamBody))
+			upstreamURL, bytes.NewReader(upstreamBody))
 		if buildErr != nil {
 			err = buildErr
 			continue

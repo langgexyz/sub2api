@@ -238,27 +238,45 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 }
 
 // edgeAuthAndBase derives the edge-side auth scheme + upstream base URL from a
-// resolved account. Fixed-key accounts on Anthropic use x-api-key +
-// anthropic-version; on OpenAI use Authorization: Bearer (the AuthScheme zero
-// value). OAuth accounts are not yet exposed through the edge (they need the
-// provider's beta headers + default base URL — a separate follow-up).
+// resolved account + its tokenType (as returned by GatewayService.GetAccessToken).
+//
+//   - Fixed key (tokenType "apikey"): Anthropic uses x-api-key + anthropic-version;
+//     OpenAI uses Authorization: Bearer (AuthScheme zero value). Base URL from the
+//     account's configured base_url (GetBaseURL).
+//   - OAuth (tokenType "oauth"), Anthropic/Claude: present the OAuth access token
+//     as Authorization: Bearer against api.anthropic.com. The Claude Code
+//     fingerprint (anthropic-beta / user-agent / x-stainless-*) is NOT injected
+//     here — sub2api only injects it for non-Claude-Code clients (mimicClaudeCode).
+//     The edge instead relies on the real Claude Code client to carry those
+//     headers, which it forwards unchanged (only credential headers are stripped).
+//     So OAuth-account traffic via the edge is supported for Claude Code clients;
+//     non-Claude-Code clients against OAuth accounts must use the central gateway.
 func edgeAuthAndBase(acc *service.Account, tokenType string) (edgegw.AuthScheme, string, error) {
-	if tokenType != "apikey" {
+	switch tokenType {
+	case "apikey":
+		base := acc.GetBaseURL()
+		if base == "" {
+			return edgegw.AuthScheme{}, "", errEdgeNoBaseURL
+		}
+		if acc.Platform == service.PlatformOpenAI {
+			return edgegw.AuthScheme{}, base, nil // Authorization: Bearer <key>
+		}
+		return edgegw.AuthScheme{
+			Header: "x-api-key",
+			Extra:  map[string]string{"anthropic-version": "2023-06-01"},
+		}, base, nil
+
+	case "oauth":
+		// Anthropic OAuth only for now. Other OAuth platforms (OpenAI/Gemini/
+		// Antigravity) have different bases + fingerprints — follow-ups.
+		if acc.Platform != service.PlatformAnthropic {
+			return edgegw.AuthScheme{}, "", errEdgeUnsupportedType
+		}
+		return edgegw.AuthScheme{}, "https://api.anthropic.com", nil // Authorization: Bearer <oauth token>
+
+	default:
 		return edgegw.AuthScheme{}, "", errEdgeUnsupportedType
 	}
-	base := acc.GetBaseURL()
-	if base == "" {
-		return edgegw.AuthScheme{}, "", errEdgeNoBaseURL
-	}
-	if acc.Platform == service.PlatformOpenAI {
-		// OpenAI protocol: Authorization: Bearer <key> (AuthScheme zero value).
-		return edgegw.AuthScheme{}, base, nil
-	}
-	// Anthropic protocol: x-api-key + anthropic-version.
-	return edgegw.AuthScheme{
-		Header: "x-api-key",
-		Extra:  map[string]string{"anthropic-version": "2023-06-01"},
-	}, base, nil
 }
 
 var (
