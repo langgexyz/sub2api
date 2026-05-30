@@ -138,13 +138,16 @@ func NewEdgeCenterHandler(
 func deriveSealSecret() []byte {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
 		sum := sha256.Sum256([]byte("edge-lease-seal/" + s))
-		return sum[:]
+		// hex-encode so the secret is a printable ASCII string: it is JSON-safe
+		// to hand to the edge at enroll, and both sides treat []byte(hexString)
+		// as the seal key identically.
+		return []byte(hex.EncodeToString(sum[:]))
 	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return []byte("edge-lease-seal-fallback-key-0001")
 	}
-	return b
+	return []byte(hex.EncodeToString(b))
 }
 
 // Enroll exchanges an enroll key for the edge's full operating config: an
