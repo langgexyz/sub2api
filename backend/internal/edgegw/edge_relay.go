@@ -23,6 +23,7 @@ type EdgeRelay struct {
 	enrollKey   string
 	internalKey string
 	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
+	owner       *ownerToken
 	centerURL   string
 	centerHTTP  *http.Client
 	upstream    *http.Client
@@ -42,12 +43,17 @@ type EdgeConfig struct {
 	// TokenSecret is the shared secret used to OPEN sealed lease tokens. Must
 	// match the center's seal secret. Empty means the center returns raw tokens.
 	TokenSecret []byte
-	CenterURL   string // base URL of the center, e.g. http://center:9000
-	CenterHTTP  *http.Client
-	Upstream    *http.Client
-	MaxFailover int
-	MaxBodyByte int64 // max client request body; 0 => 32 MiB default
-	Now         Clock
+	// OwnerAccessToken / OwnerRefreshToken are the edge owner's sub2api JWT and
+	// refresh token. The edge presents the access token to the center (proving
+	// ownership) and refreshes it via /api/v1/auth/refresh when it expires.
+	OwnerAccessToken  string
+	OwnerRefreshToken string
+	CenterURL         string // base URL of the center, e.g. http://center:9000
+	CenterHTTP        *http.Client
+	Upstream          *http.Client
+	MaxFailover       int
+	MaxBodyByte       int64 // max client request body; 0 => 32 MiB default
+	Now               Clock
 }
 
 // NewEdgeRelay builds an edge relay.
@@ -72,11 +78,16 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	if maxBody <= 0 {
 		maxBody = 32 << 20 // 32 MiB
 	}
+	var owner *ownerToken
+	if cfg.OwnerAccessToken != "" || cfg.OwnerRefreshToken != "" {
+		owner = &ownerToken{access: cfg.OwnerAccessToken, refresh: cfg.OwnerRefreshToken}
+	}
 	return &EdgeRelay{
 		edgeID:      cfg.EdgeID,
 		enrollKey:   cfg.EnrollKey,
 		internalKey: cfg.InternalKey,
 		tokenSecret: cfg.TokenSecret,
+		owner:       owner,
 		centerURL:   strings.TrimRight(cfg.CenterURL, "/"),
 		centerHTTP:  ch,
 		upstream:    up,
@@ -268,14 +279,25 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 
 func (e *EdgeRelay) callLease(ctx context.Context, req LeaseRequest) (*LeaseResult, int, error) {
 	buf, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/lease", bytes.NewReader(buf))
+	do := func() (*http.Response, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/lease", bytes.NewReader(buf))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		e.authHeader(httpReq)
+		return e.centerHTTP.Do(httpReq)
+	}
+	resp, err := do()
 	if err != nil {
 		return nil, 0, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	resp, err := e.centerHTTP.Do(httpReq)
-	if err != nil {
-		return nil, 0, err
+	// Owner JWT expired -> refresh once via sub2api's auth endpoint and retry.
+	if resp.StatusCode == http.StatusUnauthorized && e.refreshOwner(ctx) {
+		_ = resp.Body.Close()
+		if resp, err = do(); err != nil {
+			return nil, 0, err
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -295,6 +317,7 @@ func (e *EdgeRelay) callSettle(ctx context.Context, req SettleRequest) {
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	e.authHeader(httpReq)
 	resp, err := e.centerHTTP.Do(httpReq)
 	if err != nil {
 		return

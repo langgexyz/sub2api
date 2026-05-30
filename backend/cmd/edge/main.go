@@ -127,6 +127,8 @@ func runServe(args []string) {
 	tlsServerCA := fs.String("tls-server-ca", env("EDGE_TLS_SERVER_CA", ""), "CA PEM that signs the center cert [EDGE_TLS_SERVER_CA]")
 	internalKey := fs.String("internal-key", env("EDGE_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [EDGE_INTERNAL_KEY]")
 	tokenSecret := fs.String("token-secret", env("EDGE_TOKEN_SECRET", ""), "shared secret to open sealed lease tokens; must match the center [EDGE_TOKEN_SECRET]")
+	ownerJWT := fs.String("owner-jwt", env("EDGE_OWNER_JWT", ""), "edge owner's sub2api access JWT (proves ownership) [EDGE_OWNER_JWT]")
+	ownerRefresh := fs.String("owner-refresh", env("EDGE_OWNER_REFRESH", ""), "edge owner's sub2api refresh token (auto-renews the JWT) [EDGE_OWNER_REFRESH]")
 	_ = fs.Parse(args)
 
 	upstreamClient, err := edgegw.NewUpstreamClient(*upstreamProxy, *upstreamTimeout)
@@ -145,14 +147,16 @@ func runServe(args []string) {
 	}
 
 	relay := edgegw.NewEdgeRelay(edgegw.EdgeConfig{
-		EdgeID:      *edgeID,
-		EnrollKey:   *enrollKey,
-		InternalKey: *internalKey,
-		TokenSecret: []byte(*tokenSecret),
-		CenterURL:   *center,
-		CenterHTTP:  centerClient,
-		Upstream:    upstreamClient,
-		MaxFailover: *maxFailover,
+		EdgeID:            *edgeID,
+		EnrollKey:         *enrollKey,
+		InternalKey:       *internalKey,
+		TokenSecret:       []byte(*tokenSecret),
+		OwnerAccessToken:  *ownerJWT,
+		OwnerRefreshToken: *ownerRefresh,
+		CenterURL:         *center,
+		CenterHTTP:        centerClient,
+		Upstream:          upstreamClient,
+		MaxFailover:       *maxFailover,
 	})
 
 	egressLabel := *upstreamProxy

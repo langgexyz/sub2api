@@ -3,11 +3,14 @@ package handler
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
@@ -37,26 +40,57 @@ type EdgeCenterHandler struct {
 	apiKeyService  *service.APIKeyService
 	gatewayService *service.GatewayService
 	billingService *service.BillingCacheService
+	authService    *service.AuthService
 
 	edges *edgereg.Registry
 
-	// Optional: when set, lease tokens are AEAD-sealed bound to {edgeID, exp}
-	// instead of returned raw (defense-in-depth; see edgegw.SealLeaseToken).
+	// Lease tokens are ALWAYS AEAD-sealed bound to {edgeID, exp}; tokenSecret is
+	// derived automatically (never operator-configured) and handed to each edge
+	// at enroll, so the edge can open what the center sealed. seal is mandatory.
 	tokenSecret []byte
 	tokenTTL    time.Duration
+
+	// Config the center ISSUES to edges at enroll (so the edge needs no local
+	// config beyond a token): egress proxy URL, heartbeat, failover, platforms.
+	issuedProxy       string
+	issuedCenterURL   string
+	issuedHeartbeat   int
+	issuedMaxFailover int
+	issuedPlatforms   []string
+	enrollKeys        map[string]struct{}
+	enrollSeq         int64
 
 	mu    sync.Mutex
 	slots map[string]*leasedSlot
 }
 
-// SetTokenSeal enables sealed lease tokens with the given shared secret + TTL
-// (the edge must be configured with the same secret to open them).
-func (h *EdgeCenterHandler) SetTokenSeal(secret []byte, ttl time.Duration) {
-	if ttl <= 0 {
-		ttl = 2 * time.Minute
+// SetEnrollConfig sets what the center issues to enrolling edges (egress proxy
+// is included so the edge's stable-IP egress is center-controlled, not local).
+func (h *EdgeCenterHandler) SetEnrollConfig(centerURL, upstreamProxy string, heartbeatSeconds, maxFailover int, platforms []string) {
+	h.issuedCenterURL = centerURL
+	h.issuedProxy = upstreamProxy
+	h.issuedHeartbeat = heartbeatSeconds
+	h.issuedMaxFailover = maxFailover
+	h.issuedPlatforms = append([]string(nil), platforms...)
+}
+
+// SetEnrollKeys restricts enroll/register to these keys (empty = accept any).
+func (h *EdgeCenterHandler) SetEnrollKeys(keys []string) {
+	m := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if k != "" {
+			m[k] = struct{}{}
+		}
 	}
-	h.tokenSecret = secret
-	h.tokenTTL = ttl
+	h.enrollKeys = m
+}
+
+func (h *EdgeCenterHandler) enrollKeyAllowed(key string) bool {
+	if len(h.enrollKeys) == 0 {
+		return true
+	}
+	_, ok := h.enrollKeys[key]
+	return ok
 }
 
 type leasedSlot struct {
@@ -80,24 +114,74 @@ func NewEdgeCenterHandler(
 	apiKeyService *service.APIKeyService,
 	gatewayService *service.GatewayService,
 	billingService *service.BillingCacheService,
+	authService *service.AuthService,
 ) *EdgeCenterHandler {
 	h := &EdgeCenterHandler{
 		apiKeyService:  apiKeyService,
 		gatewayService: gatewayService,
 		billingService: billingService,
+		authService:    authService,
 		edges:          edgereg.New(60*time.Second, time.Now),
 		slots:          make(map[string]*leasedSlot),
-	}
-	if secret := os.Getenv("EDGE_TOKEN_SECRET"); secret != "" {
-		ttl := 2 * time.Minute
-		if v := os.Getenv("EDGE_TOKEN_TTL"); v != "" {
-			if d, err := time.ParseDuration(v); err == nil {
-				ttl = d
-			}
-		}
-		h.SetTokenSeal([]byte(secret), ttl)
+		// Seal is MANDATORY and zero-config: the secret is auto-derived (from
+		// JWT_SECRET if present, else a random per-process key) and handed to each
+		// edge at enroll. Lease tokens are never returned raw.
+		tokenSecret: deriveSealSecret(),
+		tokenTTL:    2 * time.Minute,
 	}
 	return h
+}
+
+// deriveSealSecret produces the center's lease-token seal secret without
+// operator configuration: from JWT_SECRET when available (stable across
+// restarts, shared by all replicas of the same deploy), else a random key.
+func deriveSealSecret() []byte {
+	if s := os.Getenv("JWT_SECRET"); s != "" {
+		sum := sha256.Sum256([]byte("edge-lease-seal/" + s))
+		return sum[:]
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return []byte("edge-lease-seal-fallback-key-0001")
+	}
+	return b
+}
+
+// Enroll exchanges an enroll key for the edge's full operating config: an
+// assigned edge id, the seal secret (so it can open sealed lease tokens), the
+// center-controlled egress proxy, and runtime params. This is what lets an edge
+// run with ZERO local config beyond the enroll token.
+func (h *EdgeCenterHandler) Enroll(c *gin.Context) {
+	var req edgegw.EnrollRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode enroll request")
+		return
+	}
+	if !h.enrollKeyAllowed(req.Key) {
+		edgeCenterError(c, http.StatusUnauthorized, "enroll_denied", "invalid enroll key")
+		return
+	}
+	edgeID := req.EdgeID
+	if edgeID == "" {
+		edgeID = "edge-" + strconv.FormatInt(atomic.AddInt64(&h.enrollSeq, 1), 10)
+	}
+	hb := h.issuedHeartbeat
+	if hb <= 0 {
+		hb = 10
+	}
+	mf := h.issuedMaxFailover
+	if mf <= 0 {
+		mf = 3
+	}
+	c.JSON(http.StatusOK, edgegw.EnrollResponse{
+		EdgeID:           edgeID,
+		CenterURL:        h.issuedCenterURL,
+		TokenSecret:      string(h.tokenSecret),
+		UpstreamProxy:    h.issuedProxy,
+		HeartbeatSeconds: hb,
+		MaxFailover:      mf,
+		Platforms:        append([]string(nil), h.issuedPlatforms...),
+	})
 }
 
 // Register records an edge in the fleet (auto-detecting its egress IP).
@@ -134,6 +218,32 @@ func (h *EdgeCenterHandler) Edges(c *gin.Context) {
 	c.JSON(http.StatusOK, h.edges.Live())
 }
 
+// edgeOwnerUserID validates the edge owner's sub2api JWT (presented as
+// Authorization: Bearer <jwt>) and returns the owner user id. The edge holds the
+// user's JWT + refresh token (sub2api's own auth system) and refreshes via
+// /api/v1/auth/refresh when the access token expires — no bespoke edge
+// credential. When no auth service is wired (PoC), ownership is not enforced.
+func (h *EdgeCenterHandler) edgeOwnerUserID(c *gin.Context) (int64, error) {
+	if h.authService == nil {
+		return 0, nil
+	}
+	auth := c.GetHeader("Authorization")
+	const p = "Bearer "
+	if len(auth) <= len(p) || !strings.EqualFold(auth[:len(p)], p) {
+		return 0, errEdgeNoJWT
+	}
+	claims, err := h.authService.ValidateToken(strings.TrimSpace(auth[len(p):]))
+	if err != nil {
+		return 0, errEdgeBadJWT
+	}
+	return claims.UserID, nil
+}
+
+var (
+	errEdgeNoJWT  = edgeCenterErr("edge owner JWT required (Authorization: Bearer)")
+	errEdgeBadJWT = edgeCenterErr("edge owner JWT invalid or expired")
+)
+
 // Lease validates the sub2api API key, checks billing, selects a real account
 // (acquiring its concurrency slot), and returns the account + upstream token +
 // endpoint for the edge to use.
@@ -150,6 +260,14 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
+	// 0. Edge owner: the edge presents its owner's sub2api JWT. We verify it
+	// (sub2api's own JWT system — no bespoke edge credential) and bind ownership.
+	ownerUserID, err := h.edgeOwnerUserID(c)
+	if err != nil {
+		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
+		return
+	}
+
 	// 1. Authenticate the sub2api key -> user + group (same as the gateway).
 	apiKey, user, err := h.apiKeyService.ValidateKey(ctx, req.APIKey)
 	if err != nil {
@@ -158,6 +276,15 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 	}
 	if apiKey.GroupID == nil {
 		edgeCenterError(c, http.StatusForbidden, "forbidden", "api key has no group assigned")
+		return
+	}
+
+	// 1b. Owner enforcement: an edge only serves its OWNER's api keys. A key
+	// belonging to a different user is rejected — the edge is a per-user egress,
+	// not a shared data plane. (ownerUserID == 0 means enforcement disabled, e.g.
+	// no auth service wired in the PoC.)
+	if ownerUserID != 0 && apiKey.UserID != ownerUserID {
+		edgeCenterError(c, http.StatusForbidden, "not_owner", "api key does not belong to this edge's owner")
 		return
 	}
 
@@ -197,9 +324,10 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 		return
 	}
 
-	// Seal the upstream token bound to this edge + a short TTL (defense-in-depth)
-	// when a seal secret is configured; otherwise it is returned raw (dev).
-	if len(h.tokenSecret) > 0 && cand.LeaseToken != "" {
+	// Seal the upstream token bound to this edge + a short TTL (MANDATORY: the
+	// lease token is never returned raw). The edge opens it with the seal secret
+	// it received at enroll.
+	if cand.LeaseToken != "" {
 		sealed, sErr := edgegw.SealLeaseToken(cand.LeaseToken, req.EdgeID, h.tokenTTL, h.tokenSecret, time.Now)
 		if sErr != nil {
 			release()

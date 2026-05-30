@@ -23,6 +23,8 @@ type EnrollRequest struct {
 type EnrollResponse struct {
 	EdgeID           string   `json:"edge_id"`
 	CenterURL        string   `json:"center_url,omitempty"`
+	TokenSecret      string   `json:"token_secret,omitempty"`   // seal secret so the edge can open sealed lease tokens
+	UpstreamProxy    string   `json:"upstream_proxy,omitempty"` // center-controlled egress proxy URL
 	HeartbeatSeconds int      `json:"heartbeat_seconds"`
 	MaxFailover      int      `json:"max_failover"`
 	Platforms        []string `json:"platforms,omitempty"`
