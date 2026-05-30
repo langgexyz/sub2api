@@ -183,7 +183,9 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		// Provider-aware request prep: model mapping lands in the body
 		// (Anthropic/OpenAI) or the URL path (Gemini).
 		upstreamPath, upstreamBody := provider.PrepareRequest(r.URL.Path, body, cand.MappedModel(reqModel))
-		upstreamURL := cand.UpstreamBaseURL + upstreamPath
+		// Protocol-uniform join: handles bases that already include a version
+		// segment (OpenAI ".../v1") without doubling /v1.
+		upstreamURL := JoinUpstreamURL(cand.UpstreamBaseURL, upstreamPath)
 		// Preserve the client's query string (e.g. ?beta=true for Anthropic OAuth).
 		if r.URL.RawQuery != "" {
 			upstreamURL += "?" + r.URL.RawQuery

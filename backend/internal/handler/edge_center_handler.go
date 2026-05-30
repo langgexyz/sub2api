@@ -231,10 +231,18 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 	}
 
 	// The upstream base URL is account configuration provided when the account is
-	// created (e.g. MiMo exposes one base URL per protocol: .../v1 for OpenAI,
+	// created (MiMo exposes one base URL per protocol: .../v1 for OpenAI,
 	// .../anthropic for Anthropic; the account is created on one platform with the
-	// matching base_url). The edge just uses it — no if/branch / platform guessing.
-	base := acc.GetBaseURL()
+	// matching base_url). Read the configured base via the protocol's own accessor
+	// — this is the AnthropicProtocolProvider / OpenAIProtocolProvider distinction
+	// (sub2api's two gateway services), NOT base-URL guessing.
+	var base string
+	switch acc.Platform {
+	case service.PlatformOpenAI:
+		base = acc.GetOpenAIBaseURL()
+	default:
+		base = acc.GetBaseURL()
+	}
 	if base == "" {
 		return edgegw.Candidate{}, errEdgeNoBaseURL
 	}

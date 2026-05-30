@@ -156,7 +156,9 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 **edge = 纯 relay,只多了 lease/settle 这一套,不引入任何新协议/鉴权扩展。** 对 center(sub2api)而言,edge 只是「多了一个执行账号的 Provider」;center↔edge↔上游走 sub2api 已有协议。edge 忠实转发客户端请求,只换三样:鉴权→`Authorization: Bearer <lease 来的 token>`、端点→账号的 upstream base、模型名→按映射改;其余客户端 header(anthropic-version / anthropic-beta / user-agent 等)原样转发。
 
-**统一 Bearer,无 auth-scheme 分叉**:`candidateFromAccount` 用 sub2api 已有公共方法 `GatewayService.GetAccessToken(ctx, account)` 解析出 access_token(apikey 账号它就是那把 key,OAuth 账号是刷新后的 token),edge 一律以 `Bearer` 呈现。MiMo 这类 anthropic-兼容上游 + OpenAI + OAuth 都用 Bearer(MiMo `/anthropic` 实测接受 Bearer)。bedrock/service_account 这类无 bearer token 的不经 edge。edge 对 apikey/OAuth **完全无感**。
+**统一 Bearer,无 auth-scheme 分叉**:`candidateFromAccount` 用 sub2api 已有公共方法 `GatewayService.GetAccessToken(ctx, account)` 解析出 access_token(apikey 账号它就是那把 key,OAuth 账号是刷新后的 token),edge 一律以 `Bearer` 呈现。MiMo 这类 anthropic-兼容上游 + OpenAI + OAuth 都用 Bearer(MiMo `/anthropic` 与 `/v1` 均实测接受 Bearer)。bedrock/service_account 这类无 bearer token 的不经 edge。edge 对 apikey/OAuth **完全无感**。
+
+**两协议(Anthropic / OpenAI)同时支持,均已端到端实测**。按协议取 base(`AnthropicProtocolProvider`=`GetBaseURL`;`OpenAIProtocolProvider`=`GetOpenAIBaseURL`——对应 sub2api 的两个 gateway service),非「猜 base」。URL 拼接走 `edgegw.JoinUpstreamURL`(镜像 sub2api 的 `buildOpenAIEndpointURL`):base 末段是版本号(`/v1`)时按 OpenAI 约定接相对路径,避免 `/v1/v1` 重复;对 anthropic(`.../anthropic`+`/v1/messages`)与 openai(`.../v1`+`/v1/chat/completions`)都正确。MiMo 同一把 key 配两个账号(anthropic 平台填 `/anthropic`,openai 平台填 `/v1`)即可两协议并用——实测:OpenAI 客户端 `/v1/chat/completions` 与 Anthropic 客户端 `/v1/messages` 经 edge 均正常返回。**未改 sub2api 核心任何文件**。
 
 1. **固定 Key(如 MiMo / 任意静态 api-key 上游)**:`GetAccessToken` 返回静态 key;edge 以 `Bearer` 呈现,端点用账号 `GetBaseURL()`,模型按映射改。**没有 refresh,数据面本就从 edge IP 出**。部署形态已端到端验证(MiMo,real sub2api,uniform Bearer)。
 
