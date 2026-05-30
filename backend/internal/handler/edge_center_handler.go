@@ -230,9 +230,13 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 		return edgegw.Candidate{}, errEdgeUnsupportedType
 	}
 
-	base, err := edgeUpstreamBaseURL(acc)
-	if err != nil {
-		return edgegw.Candidate{}, err
+	// The upstream base URL is account configuration provided when the account is
+	// created (e.g. MiMo exposes one base URL per protocol: .../v1 for OpenAI,
+	// .../anthropic for Anthropic; the account is created on one platform with the
+	// matching base_url). The edge just uses it — no if/branch / platform guessing.
+	base := acc.GetBaseURL()
+	if base == "" {
+		return edgegw.Candidate{}, errEdgeNoBaseURL
 	}
 
 	// No new auth "scheme": the edge presents the credential as Authorization:
@@ -247,25 +251,6 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 		LeaseToken:      token,
 		ModelMapping:    acc.GetModelMapping(),
 	}, nil
-}
-
-// edgeUpstreamBaseURL resolves the account's upstream endpoint: its configured
-// base_url (GetBaseURL, e.g. MiMo's), falling back to the platform default when
-// empty (OAuth accounts have no custom base_url).
-func edgeUpstreamBaseURL(acc *service.Account) (string, error) {
-	base := acc.GetBaseURL()
-	if base == "" {
-		switch acc.Platform {
-		case service.PlatformAnthropic:
-			base = "https://api.anthropic.com"
-		case service.PlatformOpenAI:
-			base = "https://api.openai.com"
-		}
-	}
-	if base == "" {
-		return "", errEdgeNoBaseURL
-	}
-	return base, nil
 }
 
 var (
