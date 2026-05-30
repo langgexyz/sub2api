@@ -154,11 +154,15 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 上游账号按凭据生命周期分两类,**只有第二类才需要第 5 节的 refresh-via-home-edge 机制**:
 
-1. **固定 Key Provider(如 MiMo / 任意静态 API-key 上游)**:一个静态 api_key,**没有 refresh_token**。中心 `EdgeCenterHandler.candidateFromAccount` 的 `AccountTypeAPIKey` 分支已完整覆盖:`GetCredential("api_key")` + `x-api-key`/`anthropic-version` 鉴权 + `GetBaseURL()` + 模型映射。**唯一在乎的 IP 是数据面请求的出口**——而它本就从 edge 出。所以这类**不涉及 refresh,也不需要 refresh-via-edge**;部署形态已端到端验证(MiMo,real sub2api,见 10.6 实测)。
+**edge 对凭据类型无感(agnostic)**:edge 只认 sub2api 的账号体系 + 一个 `access_token`,**感知不到 apikey 还是 OAuth**。中心 `EdgeCenterHandler.candidateFromAccount` 用 sub2api **已有的公共方法** `GatewayService.GetAccessToken(ctx, account)` 统一解析 `(token, tokenType)`——apikey 账号返回的 access_token 就是那把静态 api_key(tokenType="apikey"),OAuth 账号返回刷新后的 token(tokenType="oauth")。edge 拿到 token + auth 直接用。
 
-2. **OAuth-refresh Provider(Claude/Codex/Gemini OAuth)**:有 refresh_token、对来源 IP 敏感。**仅这类**需要:edge 侧 OAuth 账号类型支持(当前 `candidateFromAccount` 对非 apikey 类型返回 unsupported)+ 中心刷新经 home edge 出口(第 5 节 + `/internal/egress`),保证 refresh 与数据面同 IP。
+1. **固定 Key(如 MiMo / 任意静态 api-key 上游)**:`GetAccessToken` 返回静态 key;中心据 `(tokenType=apikey, platform)` 给 `AuthScheme`(anthropic→`x-api-key`+version;openai→Bearer)+ `GetBaseURL()` + 模型映射。**没有 refresh,数据面本就从 edge IP 出**,不需要 refresh-via-edge。部署形态已端到端验证(MiMo,real sub2api)。
 
-结论:固定 Key 类(MiMo)= 已完成、零残留;refresh 相关的所有复杂度只属于 OAuth 类,是独立的后续工作。
+2. **OAuth(Claude/Codex/Gemini OAuth)**:`GetAccessToken` 已能返回 oauth token(tokenType="oauth")。**仅这类**还需补:中心把 oauth 映射成 Bearer + provider beta 头 + 默认 base URL(当前 `edgeAuthAndBase` 对非 apikey 返回 unsupported);可选地让中心 refresh 经 home edge 出口(第 5 节)保证 IP 一致。
+
+结论:固定 Key 类(MiMo)= 已完成、零残留;OAuth 类只差「oauth token → auth/base 映射」这一小步,token 解析本身已被 `GetAccessToken` 统一覆盖。
+
+**架构铁律(本次确立):edge + center 都是 sub2api 之上的「叠加扩展」,只用 sub2api 现有公共 API + 新增文件/包(edgegw、edge_center_handler),绝不改 sub2api 核心文件(gateway_service.go 等)。** 这样 fork 能持续从上游主仓库升级而不冲突。本次已据此回退所有对 `gateway_service.go` 的改动,改用现成的 `GetAccessToken`。
 
 ## 11. 剩余工作:复用 sub2api 扩展(不重造)
 
@@ -166,11 +170,11 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 ### P0 — OAuth 账号类支持(让 edge 也能服务 Claude/Codex/Gemini OAuth 账号)
 
-**边界:edge 是纯消费方,永不刷新 token。OAuth 支持是纯 center 侧改动,edge 零改动。** edge 已经通用——拿到 `Candidate.LeaseToken` + `AuthScheme` 就 apply,token 来自固定 key 还是 OAuth 它无感。
+**边界:edge 纯消费方、对类型无感;改动只在 center,且只用 sub2api 现有公共 API(不改核心文件)。** token 解析已统一走 `GatewayService.GetAccessToken`(它内部已 dispatch apikey/oauth 并自动 refresh),所以 P0 不是「加 token provider」,而是补 `edge_center_handler.go: edgeAuthAndBase` 对 `tokenType="oauth"` 的映射:
 
-- 复用:Account 凭据 + AES 解密;sub2api 现成 token provider —— `ClaudeTokenProvider` / `AntigravityTokenProvider` / OpenAI·Gemini OAuth provider 的 `GetAccessToken(ctx, account)`(过期它自己 refresh)。
-- 扩展点(只在 center):`handler/edge_center_handler.go: candidateFromAccount` 加非-apikey 分支 —— 调 token provider 取当前有效 access token 填 `Candidate.LeaseToken`,`AuthScheme` 设 Bearer,必要的 anthropic-beta / Claude CLI 头放进 `AuthScheme.Extra`(edge 照常 apply,不需懂语义)。
-- 不重造:OAuth 授权 / refresh / token 持久化全在 sub2api;edge 不碰。
+- 扩展点(只在 center,新增文件内):oauth → `AuthScheme` 设 Bearer + 把 provider 需要的 anthropic-beta / Claude CLI 头放进 `Extra`;base URL 用平台默认(OAuth 账号 `GetBaseURL()` 返回空,需按 platform 给 `https://api.anthropic.com` 等)。
+- 复用:`GetAccessToken` 已覆盖 token 取值 + refresh;OAuth 授权/持久化全在 sub2api。edge 零改动。
+- 不改核心:全部落在 `edge_center_handler.go`(扩展),`gateway_service.go` 等核心文件不碰。
 
 ### P1 — center 的 refresh 经 home edge 出口(仅 OAuth 类、可选)
 - 边界重申:**刷新逻辑在 center,不在 edge**;edge 只是出借自己的稳定 IP 作出口代理。

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
@@ -153,7 +154,7 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 		return
 	}
 
-	cand, err := candidateFromAccount(sel.Account)
+	cand, err := h.candidateFromAccount(ctx, sel.Account)
 	if err != nil {
 		release()
 		edgeCenterError(c, http.StatusServiceUnavailable, "no_account", err.Error())
@@ -205,35 +206,59 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 	})
 }
 
-// candidateFromAccount maps a real sub2api Account to an edge Candidate: the
-// upstream base URL, the credential the edge presents, the auth scheme, and the
-// model mapping. Mirrors how GatewayService.buildUpstreamRequest authenticates.
-func candidateFromAccount(acc *service.Account) (edgegw.Candidate, error) {
-	cand := edgegw.Candidate{
-		AccountID:    strconv.FormatInt(acc.ID, 10),
-		Platform:     acc.Platform,
-		ModelMapping: acc.GetModelMapping(),
+// candidateFromAccount maps a real sub2api Account to an edge Candidate. It
+// resolves the access token the SAME way the gateway does — via the existing
+// public GatewayService.GetAccessToken — so it is agnostic to whether the
+// account is a fixed API key (token == the key, tokenType "apikey") or OAuth
+// (refreshed token, tokenType "oauth"). The edge never perceives that
+// difference; it only consumes the resolved access_token + endpoint + auth.
+//
+// Note: this calls only EXISTING public sub2api APIs and lives entirely in the
+// edge extension — no sub2api core file is modified, so the fork stays
+// upstream-upgradeable.
+func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (edgegw.Candidate, error) {
+	token, tokenType, err := h.gatewayService.GetAccessToken(ctx, acc)
+	if err != nil {
+		return edgegw.Candidate{}, err
 	}
 
-	switch acc.Type {
-	case service.AccountTypeAPIKey:
-		base := acc.GetBaseURL()
-		if base == "" {
-			return edgegw.Candidate{}, errEdgeNoBaseURL
-		}
-		cand.UpstreamBaseURL = base
-		cand.LeaseToken = acc.GetCredential("api_key")
-		// sub2api uses x-api-key for apikey accounts; anthropic-version required.
-		cand.AuthScheme = edgegw.AuthScheme{
-			Header: "x-api-key",
-			Extra:  map[string]string{"anthropic-version": "2023-06-01"},
-		}
-	default:
-		// OAuth and other types need their own token resolution / refresh; not
-		// yet supported through the edge.
-		return edgegw.Candidate{}, errEdgeUnsupportedType
+	authScheme, base, err := edgeAuthAndBase(acc, tokenType)
+	if err != nil {
+		return edgegw.Candidate{}, err
 	}
-	return cand, nil
+
+	return edgegw.Candidate{
+		AccountID:       strconv.FormatInt(acc.ID, 10),
+		Platform:        acc.Platform,
+		UpstreamBaseURL: base,
+		LeaseToken:      token,
+		AuthScheme:      authScheme,
+		ModelMapping:    acc.GetModelMapping(),
+	}, nil
+}
+
+// edgeAuthAndBase derives the edge-side auth scheme + upstream base URL from a
+// resolved account. Fixed-key accounts on Anthropic use x-api-key +
+// anthropic-version; on OpenAI use Authorization: Bearer (the AuthScheme zero
+// value). OAuth accounts are not yet exposed through the edge (they need the
+// provider's beta headers + default base URL — a separate follow-up).
+func edgeAuthAndBase(acc *service.Account, tokenType string) (edgegw.AuthScheme, string, error) {
+	if tokenType != "apikey" {
+		return edgegw.AuthScheme{}, "", errEdgeUnsupportedType
+	}
+	base := acc.GetBaseURL()
+	if base == "" {
+		return edgegw.AuthScheme{}, "", errEdgeNoBaseURL
+	}
+	if acc.Platform == service.PlatformOpenAI {
+		// OpenAI protocol: Authorization: Bearer <key> (AuthScheme zero value).
+		return edgegw.AuthScheme{}, base, nil
+	}
+	// Anthropic protocol: x-api-key + anthropic-version.
+	return edgegw.AuthScheme{
+		Header: "x-api-key",
+		Extra:  map[string]string{"anthropic-version": "2023-06-01"},
+	}, base, nil
 }
 
 var (
