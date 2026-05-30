@@ -154,11 +154,13 @@ edge 通过 `Provider`(`provider.go`)吸收各上游协议差异,中心在 `Cand
 
 上游账号按凭据生命周期分两类,**只有第二类才需要第 5 节的 refresh-via-home-edge 机制**:
 
-**edge 对凭据类型无感(agnostic)**:edge 只认 sub2api 的账号体系 + 一个 `access_token`,**感知不到 apikey 还是 OAuth**。中心 `EdgeCenterHandler.candidateFromAccount` 用 sub2api **已有的公共方法** `GatewayService.GetAccessToken(ctx, account)` 统一解析 `(token, tokenType)`——apikey 账号返回的 access_token 就是那把静态 api_key(tokenType="apikey"),OAuth 账号返回刷新后的 token(tokenType="oauth")。edge 拿到 token + auth 直接用。
+**edge = 纯 relay,只多了 lease/settle 这一套,不引入任何新协议/鉴权扩展。** 对 center(sub2api)而言,edge 只是「多了一个执行账号的 Provider」;center↔edge↔上游走 sub2api 已有协议。edge 忠实转发客户端请求,只换三样:鉴权→`Authorization: Bearer <lease 来的 token>`、端点→账号的 upstream base、模型名→按映射改;其余客户端 header(anthropic-version / anthropic-beta / user-agent 等)原样转发。
 
-1. **固定 Key(如 MiMo / 任意静态 api-key 上游)**:`GetAccessToken` 返回静态 key;中心据 `(tokenType=apikey, platform)` 给 `AuthScheme`(anthropic→`x-api-key`+version;openai→Bearer)+ `GetBaseURL()` + 模型映射。**没有 refresh,数据面本就从 edge IP 出**,不需要 refresh-via-edge。部署形态已端到端验证(MiMo,real sub2api)。
+**统一 Bearer,无 auth-scheme 分叉**:`candidateFromAccount` 用 sub2api 已有公共方法 `GatewayService.GetAccessToken(ctx, account)` 解析出 access_token(apikey 账号它就是那把 key,OAuth 账号是刷新后的 token),edge 一律以 `Bearer` 呈现。MiMo 这类 anthropic-兼容上游 + OpenAI + OAuth 都用 Bearer(MiMo `/anthropic` 实测接受 Bearer)。bedrock/service_account 这类无 bearer token 的不经 edge。edge 对 apikey/OAuth **完全无感**。
 
-2. **OAuth(Claude/Codex/Gemini OAuth)**:`GetAccessToken` 已能返回 oauth token(tokenType="oauth")。**仅这类**还需补:中心把 oauth 映射成 Bearer + provider beta 头 + 默认 base URL(当前 `edgeAuthAndBase` 对非 apikey 返回 unsupported);可选地让中心 refresh 经 home edge 出口(第 5 节)保证 IP 一致。
+1. **固定 Key(如 MiMo / 任意静态 api-key 上游)**:`GetAccessToken` 返回静态 key;edge 以 `Bearer` 呈现,端点用账号 `GetBaseURL()`,模型按映射改。**没有 refresh,数据面本就从 edge IP 出**。部署形态已端到端验证(MiMo,real sub2api,uniform Bearer)。
+
+2. **OAuth(Claude/Codex/Gemini OAuth)**:`GetAccessToken` 返回刷新后的 oauth token,edge 同样以 `Bearer` 呈现,端点用平台默认(如 `https://api.anthropic.com`)。Claude Code 指纹头(anthropic-beta/user-agent/x-stainless-*)由**客户端自带**(edge 原样转发),无需中心注入——非 Claude Code 客户端打 OAuth 账号仍走中心网关。可选:中心 refresh 经 home edge 出口(第 5 节)保证 IP 一致。代码已支持(`candidateFromAccount` 统一 Bearer + 平台默认 base),待真实 Claude OAuth 账号 e2e 验证。
 
 结论:固定 Key 类(MiMo)= 已完成、零残留;OAuth 类只差「oauth token → auth/base 映射」这一小步,token 解析本身已被 `GetAccessToken` 统一覆盖。
 

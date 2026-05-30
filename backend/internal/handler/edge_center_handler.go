@@ -217,66 +217,55 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 // edge extension — no sub2api core file is modified, so the fork stays
 // upstream-upgradeable.
 func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (edgegw.Candidate, error) {
-	token, tokenType, err := h.gatewayService.GetAccessToken(ctx, acc)
+	// Resolve the access token via sub2api's existing public method — agnostic to
+	// fixed-key vs OAuth (for a fixed-key account the token IS the api key; for
+	// OAuth it is the refreshed access token).
+	token, _, err := h.gatewayService.GetAccessToken(ctx, acc)
+	if err != nil {
+		return edgegw.Candidate{}, err
+	}
+	if token == "" {
+		// Empty token => not a bearer-style credential (e.g. bedrock /
+		// service_account): not servable through the edge.
+		return edgegw.Candidate{}, errEdgeUnsupportedType
+	}
+
+	base, err := edgeUpstreamBaseURL(acc)
 	if err != nil {
 		return edgegw.Candidate{}, err
 	}
 
-	authScheme, base, err := edgeAuthAndBase(acc, tokenType)
-	if err != nil {
-		return edgegw.Candidate{}, err
-	}
-
+	// No new auth "scheme": the edge presents the credential as Authorization:
+	// Bearer <token> (the protocol sub2api / MiMo-compatible upstreams + OpenAI +
+	// OAuth all use) and otherwise relays the client request unchanged. The edge
+	// is just one more way to execute an account; the only new surface is
+	// lease/settle. (AuthScheme zero value == Authorization: Bearer.)
 	return edgegw.Candidate{
 		AccountID:       strconv.FormatInt(acc.ID, 10),
 		Platform:        acc.Platform,
 		UpstreamBaseURL: base,
 		LeaseToken:      token,
-		AuthScheme:      authScheme,
 		ModelMapping:    acc.GetModelMapping(),
 	}, nil
 }
 
-// edgeAuthAndBase derives the edge-side auth scheme + upstream base URL from a
-// resolved account + its tokenType (as returned by GatewayService.GetAccessToken).
-//
-//   - Fixed key (tokenType "apikey"): Anthropic uses x-api-key + anthropic-version;
-//     OpenAI uses Authorization: Bearer (AuthScheme zero value). Base URL from the
-//     account's configured base_url (GetBaseURL).
-//   - OAuth (tokenType "oauth"), Anthropic/Claude: present the OAuth access token
-//     as Authorization: Bearer against api.anthropic.com. The Claude Code
-//     fingerprint (anthropic-beta / user-agent / x-stainless-*) is NOT injected
-//     here — sub2api only injects it for non-Claude-Code clients (mimicClaudeCode).
-//     The edge instead relies on the real Claude Code client to carry those
-//     headers, which it forwards unchanged (only credential headers are stripped).
-//     So OAuth-account traffic via the edge is supported for Claude Code clients;
-//     non-Claude-Code clients against OAuth accounts must use the central gateway.
-func edgeAuthAndBase(acc *service.Account, tokenType string) (edgegw.AuthScheme, string, error) {
-	switch tokenType {
-	case "apikey":
-		base := acc.GetBaseURL()
-		if base == "" {
-			return edgegw.AuthScheme{}, "", errEdgeNoBaseURL
+// edgeUpstreamBaseURL resolves the account's upstream endpoint: its configured
+// base_url (GetBaseURL, e.g. MiMo's), falling back to the platform default when
+// empty (OAuth accounts have no custom base_url).
+func edgeUpstreamBaseURL(acc *service.Account) (string, error) {
+	base := acc.GetBaseURL()
+	if base == "" {
+		switch acc.Platform {
+		case service.PlatformAnthropic:
+			base = "https://api.anthropic.com"
+		case service.PlatformOpenAI:
+			base = "https://api.openai.com"
 		}
-		if acc.Platform == service.PlatformOpenAI {
-			return edgegw.AuthScheme{}, base, nil // Authorization: Bearer <key>
-		}
-		return edgegw.AuthScheme{
-			Header: "x-api-key",
-			Extra:  map[string]string{"anthropic-version": "2023-06-01"},
-		}, base, nil
-
-	case "oauth":
-		// Anthropic OAuth only for now. Other OAuth platforms (OpenAI/Gemini/
-		// Antigravity) have different bases + fingerprints — follow-ups.
-		if acc.Platform != service.PlatformAnthropic {
-			return edgegw.AuthScheme{}, "", errEdgeUnsupportedType
-		}
-		return edgegw.AuthScheme{}, "https://api.anthropic.com", nil // Authorization: Bearer <oauth token>
-
-	default:
-		return edgegw.AuthScheme{}, "", errEdgeUnsupportedType
 	}
+	if base == "" {
+		return "", errEdgeNoBaseURL
+	}
+	return base, nil
 }
 
 var (

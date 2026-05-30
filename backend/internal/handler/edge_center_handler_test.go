@@ -8,67 +8,49 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func TestEdgeAuthAndBase_APIKeyAnthropic(t *testing.T) {
+func TestEdgeUpstreamBaseURL_CustomBaseURL(t *testing.T) {
+	// MiMo: anthropic-compatible fixed-key account with a custom base_url.
 	acc := &service.Account{
 		Platform:    service.PlatformAnthropic,
 		Type:        service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "tp-1", "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic"},
 	}
-	scheme, base, err := edgeAuthAndBase(acc, "apikey")
+	base, err := edgeUpstreamBaseURL(acc)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if base != "https://token-plan-cn.xiaomimimo.com/anthropic" {
 		t.Fatalf("base = %q", base)
 	}
-	if scheme.Header != "x-api-key" || scheme.Extra["anthropic-version"] == "" {
-		t.Fatalf("anthropic apikey auth wrong: %+v", scheme)
-	}
 }
 
-func TestEdgeAuthAndBase_APIKeyOpenAI(t *testing.T) {
-	acc := &service.Account{
-		Platform:    service.PlatformOpenAI,
-		Type:        service.AccountTypeAPIKey,
-		Credentials: map[string]any{"api_key": "sk-x", "base_url": "https://my-openai.example"},
-	}
-	scheme, base, err := edgeAuthAndBase(acc, "apikey")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if base != "https://my-openai.example" {
-		t.Fatalf("base = %q", base)
-	}
-	// OpenAI => Authorization: Bearer (AuthScheme zero value: no Header).
-	if scheme.Header != "" {
-		t.Fatalf("openai apikey must use bearer (empty header), got %+v", scheme)
-	}
-}
-
-func TestEdgeAuthAndBase_OAuthAnthropic(t *testing.T) {
+func TestEdgeUpstreamBaseURL_AnthropicDefault(t *testing.T) {
+	// OAuth account: no custom base_url -> platform default.
 	acc := &service.Account{Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth}
-	scheme, base, err := edgeAuthAndBase(acc, "oauth")
+	base, err := edgeUpstreamBaseURL(acc)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if base != "https://api.anthropic.com" {
-		t.Fatalf("oauth anthropic base = %q", base)
-	}
-	if scheme.Header != "" { // Authorization: Bearer <oauth token>
-		t.Fatalf("oauth must use bearer, got %+v", scheme)
+		t.Fatalf("anthropic default = %q", base)
 	}
 }
 
-func TestEdgeAuthAndBase_OAuthNonAnthropicUnsupported(t *testing.T) {
+func TestEdgeUpstreamBaseURL_OpenAIDefault(t *testing.T) {
 	acc := &service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth}
-	if _, _, err := edgeAuthAndBase(acc, "oauth"); err == nil {
-		t.Fatalf("non-anthropic oauth must be unsupported")
+	base, err := edgeUpstreamBaseURL(acc)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if base != "https://api.openai.com" {
+		t.Fatalf("openai default = %q", base)
 	}
 }
 
-func TestEdgeAuthAndBase_UnknownTokenType(t *testing.T) {
-	acc := &service.Account{Platform: service.PlatformAnthropic, Type: service.AccountTypeBedrock}
-	if _, _, err := edgeAuthAndBase(acc, "bedrock"); err == nil {
-		t.Fatalf("unknown token type must be unsupported")
+func TestEdgeUpstreamBaseURL_UnknownPlatformNoBase(t *testing.T) {
+	// No custom base_url and a platform with no default => error.
+	acc := &service.Account{Platform: "gemini", Type: service.AccountTypeOAuth}
+	if _, err := edgeUpstreamBaseURL(acc); err == nil {
+		t.Fatalf("missing base url must error")
 	}
 }
