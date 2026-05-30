@@ -79,6 +79,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    // Device-authorization confirmation page (edge CLI device-flow login).
+    // requiresAuth: true -> an unauthenticated user is sent to
+    // /login?redirect=/device?user_code=... and returns here after login.
+    path: '/device',
+    name: 'DeviceAuthorization',
+    component: () => import('@/views/auth/DeviceAuthorizationView.vue'),
+    meta: {
+      requiresAuth: true,
+      title: 'Authorize Device',
+      titleKey: 'deviceAuthorization.title'
+    }
+  },
+  {
     path: '/auth/linuxdo/callback',
     name: 'LinuxDoOAuthCallback',
     component: () => import('@/views/auth/LinuxDoCallbackView.vue'),
