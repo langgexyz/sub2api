@@ -32,10 +32,15 @@ type AuthHandler struct {
 	dingTalkClientInstance *DingTalkClient
 	dingTalkClientMu       sync.Mutex
 
-	// deviceStore backs the RFC 8628 device-authorization flow used by the edge
-	// CLI login. In-memory, short-TTL; created here so the constructor signature
-	// (and wire wiring) is unchanged.
-	deviceStore *deviceCodeStore
+	// cliGrantStore backs the loopback+PKCE CLI login (the edge / ccdirect).
+	// In-memory, short-TTL; only the authenticated /cli/authorize path writes to
+	// it. See cli_auth_store.go.
+	cliGrantStore *cliGrantStore
+
+	// deviceBindings binds a refresh token (by hash) to a device Ed25519 public
+	// key, so a device-bound refresh requires a valid device signature. In-memory
+	// for MVP: lost on restart -> edge re-logs-in. See cli_auth_store.go.
+	deviceBindings *deviceBindingStore
 }
 
 // NewAuthHandler creates a new AuthHandler
@@ -49,7 +54,8 @@ func NewAuthHandler(cfg *config.Config, authService *service.AuthService, userSe
 		redeemService:        redeemService,
 		totpService:          totpService,
 		userAttributeService: userAttributeService,
-		deviceStore:          newDeviceCodeStore(10*time.Minute, 5*time.Second, time.Now),
+		cliGrantStore:        newCLIGrantStore(cliGrantTTL, cliGrantPruneInterval, time.Now),
+		deviceBindings:       newDeviceBindingStore(),
 	}
 }
 
@@ -668,10 +674,29 @@ type RefreshTokenResponse struct {
 
 // RefreshToken 刷新Token
 // POST /api/v1/auth/refresh
+//
+// 设备绑定（ccdirect/edge loopback+PKCE 登录）：如果该 refresh token 绑定了设备
+// 公钥，则刷新必须携带有效的 X-Ccdirect-Timestamp + X-Ccdirect-Signature
+// （Ed25519，对 canonical string 签名），用绑定的公钥验签通过后才轮换。未绑定的
+// refresh token（Web 端）行为不变。轮换后保持设备绑定。
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
+	// 先读取原始 body（用于设备签名的 canonical string），再做 JSON 绑定。
+	rawBody, err := readAndRestoreBody(c)
+	if err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	// 设备绑定校验：若该 refresh token 绑定了设备公钥，必须验签通过。
+	sigOK, bound := h.verifyDeviceRefreshSignature(c, req.RefreshToken, rawBody)
+	if bound && !sigOK {
+		response.Unauthorized(c, "Invalid device signature")
 		return
 	}
 
@@ -685,6 +710,11 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	if h.settingSvc.IsBackendModeEnabled(c.Request.Context()) && result.UserRole != "admin" {
 		response.Forbidden(c, "Backend mode is active. Only admin login is allowed.")
 		return
+	}
+
+	// 轮换后保持设备绑定：把绑定从旧 refresh token 迁移到新 refresh token。
+	if bound {
+		h.deviceBindings.rebind(req.RefreshToken, result.RefreshToken)
 	}
 
 	response.Success(c, RefreshTokenResponse{

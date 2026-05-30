@@ -46,14 +46,12 @@ func RegisterAuthRoutes(
 		}), h.Auth.RefreshToken)
 		// 登出接口（公开，允许未认证用户调用以撤销Refresh Token）
 		auth.POST("/logout", h.Auth.Logout)
-		// 设备授权流（RFC 8628）——edge CLI 浏览器登录回流。
-		// code/token 公开（调用方是未认证 CLI），限流防滥用；approve/verify 需登录（见下）。
-		auth.POST("/device/code", rateLimiter.LimitWithOptions("auth-device-code", 20, time.Minute, middleware.RateLimitOptions{
+		// CLI 登录（loopback + PKCE + 设备密钥）——edge / ccdirect 浏览器登录回流。
+		// token 公开（调用方是未认证 CLI，身份来自 grant），限流防滥用；
+		// authorize 需登录（见下）。
+		auth.POST("/cli/token", rateLimiter.LimitWithOptions("auth-cli-token", 120, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
-		}), h.Auth.DeviceCode)
-		auth.POST("/device/token", rateLimiter.LimitWithOptions("auth-device-token", 120, time.Minute, middleware.RateLimitOptions{
-			FailureMode: middleware.RateLimitFailClose,
-		}), h.Auth.DeviceToken)
+		}), h.Auth.CLIToken)
 		// 优惠码验证接口添加速率限制：每分钟最多 10 次（Redis 故障时 fail-close）
 		auth.POST("/validate-promo-code", rateLimiter.LimitWithOptions("validate-promo", 10, time.Minute, middleware.RateLimitOptions{
 			FailureMode: middleware.RateLimitFailClose,
@@ -231,9 +229,8 @@ func RegisterAuthRoutes(
 	authenticated.Use(servermiddleware.BackendModeUserGuard(settingService))
 	{
 		authenticated.GET("/auth/me", h.Auth.GetCurrentUser)
-		// 设备授权确认（需登录）——浏览器已登录用户批准 edge CLI 的 user_code。
-		authenticated.POST("/auth/device/approve", h.Auth.DeviceApprove)
-		authenticated.GET("/auth/device/verify", h.Auth.DeviceVerify)
+		// CLI 授权（需登录）——浏览器已登录用户为 edge / ccdirect 颁发一次性授权码。
+		authenticated.POST("/auth/cli/authorize", h.Auth.CLIAuthorize)
 		// 撤销所有会话（需要认证）
 		authenticated.POST("/auth/revoke-all-sessions", h.Auth.RevokeAllSessions)
 		authenticated.POST("/auth/oauth/bind-token", h.Auth.PrepareOAuthBindAccessTokenCookie)

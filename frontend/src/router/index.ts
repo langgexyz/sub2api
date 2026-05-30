@@ -79,16 +79,19 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    // Device-authorization confirmation page (edge CLI device-flow login).
+    // CLI-authorize confirmation page (edge CLI loopback + PKCE login).
     // requiresAuth: true -> an unauthenticated user is sent to
-    // /login?redirect=/device?user_code=... and returns here after login.
-    path: '/device',
-    name: 'DeviceAuthorization',
-    component: () => import('@/views/auth/DeviceAuthorizationView.vue'),
+    // /login?redirect=<full /cli/authorize?...> and returns here after login.
+    // vue-router URL-encodes the redirect query value, so the whole query
+    // (response_type, code_challenge, redirect_uri, state, device_pubkey, name)
+    // survives the round trip intact.
+    path: '/cli/authorize',
+    name: 'CliAuthorize',
+    component: () => import('@/views/auth/CliAuthorizeView.vue'),
     meta: {
       requiresAuth: true,
-      title: 'Authorize Device',
-      titleKey: 'deviceAuthorization.title'
+      title: 'Authorize CLI',
+      titleKey: 'cliAuthorize.title'
     }
   },
   {

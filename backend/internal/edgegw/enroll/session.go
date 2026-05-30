@@ -26,6 +26,18 @@ func DefaultSessionPath() (string, error) {
 	return filepath.Join(dir, "sub2api-edge", "session.json"), nil
 }
 
+// DefaultDeviceKeyPath returns the per-user device key file path, a sibling of
+// the default session file: os.UserConfigDir()/sub2api-edge/device_key. The
+// device key is the raw Ed25519 private key (0600) the edge signs bound refresh
+// requests with.
+func DefaultDeviceKeyPath() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "sub2api-edge", "device_key"), nil
+}
+
 // LoadSession reads a Session previously written by SaveSession. A missing file
 // returns a zero Session and no error (not-logged-in is not an error).
 func LoadSession(path string) (Session, error) {

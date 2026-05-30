@@ -328,22 +328,37 @@ export function isAuthenticated(): boolean {
 }
 
 /**
- * Verify a device-authorization code (RFC 8628 device flow) is still valid,
- * before showing the approve button. Used by the edge CLI login page.
+ * CLI-authorize request params (loopback + PKCE edge CLI login).
+ * Mirrors the query params the edge puts in the browser URL.
  */
-export async function verifyDeviceCode(userCode: string): Promise<boolean> {
-  const { data } = await apiClient.get<{ valid: boolean }>('/auth/device/verify', {
-    params: { user_code: userCode }
-  })
-  return data.valid
+export interface AuthorizeCliRequest {
+  response_type: string
+  code_challenge: string
+  code_challenge_method: string
+  redirect_uri: string
+  state: string
+  device_pubkey: string
+  name?: string
 }
 
 /**
- * Approve a device-authorization code: the logged-in user authorizes the edge
- * CLI device that printed this code.
+ * CLI-authorize response: where the browser should be redirected so the
+ * authorization code is handed to the edge's loopback server.
  */
-export async function approveDevice(userCode: string): Promise<void> {
-  await apiClient.post('/auth/device/approve', { user_code: userCode })
+export interface AuthorizeCliResponse {
+  redirect_to: string
+}
+
+/**
+ * Authorize an edge CLI login (loopback + PKCE). The logged-in user approves
+ * the requesting CLI; the backend mints a single-use authorization code and
+ * returns the loopback redirect URL carrying it.
+ */
+export async function authorizeCli(
+  params: AuthorizeCliRequest
+): Promise<AuthorizeCliResponse> {
+  const { data } = await apiClient.post<AuthorizeCliResponse>('/auth/cli/authorize', params)
+  return data
 }
 
 /**
@@ -700,8 +715,7 @@ export const authAPI = {
   resetPassword,
   refreshToken,
   revokeAllSessions,
-  verifyDeviceCode,
-  approveDevice,
+  authorizeCli,
   getPendingOAuthBindLoginKind,
   isPendingOAuthCreateAccountRequired,
   hasPendingOAuthSuggestedProfile,
