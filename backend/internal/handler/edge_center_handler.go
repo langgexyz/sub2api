@@ -325,6 +325,30 @@ func (h *EdgeCenterHandler) Edges(c *gin.Context) {
 	c.JSON(http.StatusOK, h.edges.Live())
 }
 
+// Report ingests a batched anomaly report from a ccdirect node and logs each
+// aggregated item for service-quality observability. Because the data plane
+// never transits cchub, these reports (plus heartbeats) are cchub's only
+// fleet-health signal — lease failures, upstream error spikes, heartbeat loss
+// and recovered panics surface here without any end-user prompt passing through.
+func (h *EdgeCenterHandler) Report(c *gin.Context) {
+	var req contract.ErrorReport
+	if err := c.ShouldBindJSON(&req); err != nil || req.EdgeID == "" {
+		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
+		return
+	}
+	l := logger.L().With(zap.String("component", "handler.edge_center"))
+	for _, it := range req.Items {
+		l.Warn("edge_center.anomaly",
+			zap.String("edge_id", req.EdgeID),
+			zap.String("kind", it.Kind),
+			zap.Int("count", it.Count),
+			zap.String("message", it.Message),
+			zap.Int64("first_at", it.FirstAt),
+			zap.Int64("last_at", it.LastAt))
+	}
+	c.JSON(http.StatusOK, contract.ReportResponse{OK: true, Accepted: len(req.Items)})
+}
+
 // edgeOwnerUserID validates the edge owner's sub2api JWT (presented as
 // Authorization: Bearer <jwt>) and returns the owner user id. The edge holds the
 // user's JWT + refresh token (sub2api's own auth system) and refreshes via

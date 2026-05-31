@@ -55,6 +55,11 @@ type EdgeRelay struct {
 	// (refuses new requests) once it passes.
 	cchubPubKey ed25519.PublicKey
 	livenessExp atomic.Int64
+
+	// reporter aggregates operational anomalies (lease failures, upstream errors,
+	// heartbeat loss, liveness drains, recovered panics) for batched reporting to
+	// cchub on the heartbeat interval. Always non-nil.
+	reporter *anomalyReporter
 }
 
 // EdgeConfig configures an EdgeRelay.
@@ -130,6 +135,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 		deviceKey:   cfg.DeviceKey,
 		cchubPubKey: cfg.CchubPubKey,
 		now:         now,
+		reporter:    newAnomalyReporter(now),
 	}
 }
 
@@ -260,6 +266,14 @@ func (e *EdgeRelay) Handler() http.Handler {
 }
 
 func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
+	// Recover panics so one bad request cannot crash a long-lived daemon; the
+	// recovered panic is reported to cchub for service-quality visibility.
+	defer func() {
+		if rec := recover(); rec != nil {
+			e.reportPanic(rec)
+			writeJSONError(w, http.StatusInternalServerError, "internal_error", "edge internal error")
+		}
+	}()
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -268,6 +282,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	// recently (unreachable / impostor / this edge revoked). Requests already past
 	// this point finish normally — graceful drain.
 	if !e.livenessHealthy() {
+		e.reportAnomaly("liveness_drain", "edge draining: no current cchub liveness")
 		writeJSONError(w, http.StatusServiceUnavailable, "draining", "edge is draining: no current cchub liveness")
 		return
 	}
@@ -304,6 +319,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 		if status == 0 {
 			status = http.StatusBadGateway
 		}
+		e.reportAnomaly("lease_failed", err.Error())
 		writeJSONError(w, status, "lease_failed", err.Error())
 		return
 	}
@@ -333,6 +349,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	e.callSettle(context.WithoutCancel(r.Context()), settle)
 
 	if ferr != nil && !streamed {
+		e.reportAnomaly("upstream_failed", ferr.Error())
 		writeJSONError(w, http.StatusBadGateway, "upstream_failed", ferr.Error())
 	}
 }

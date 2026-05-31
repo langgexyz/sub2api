@@ -124,6 +124,7 @@ func registerRoutes(
 	edge.POST("/register", h.EdgeCenter.Register)
 	edge.POST("/heartbeat", h.EdgeCenter.Heartbeat)
 	edge.GET("/edges", h.EdgeCenter.Edges)
+	edge.POST("/report", h.EdgeCenter.Report)
 
 	// API v1
 	v1 := r.Group("/api/v1")
