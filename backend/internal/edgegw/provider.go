@@ -22,17 +22,13 @@ type Provider interface {
 	NewUsageParser(stream bool) UsageParser
 }
 
-// AuthScheme tells the edge how to present the leased credential upstream.
-// Zero value means "Authorization: Bearer <token>". Gemini-style key-in-query
-// and Anthropic-style x-api-key + version headers are expressible here.
-type AuthScheme struct {
-	Header     string            `json:"header,omitempty"`      // e.g. "Authorization", "x-api-key"
-	Prefix     string            `json:"prefix,omitempty"`      // e.g. "Bearer "
-	QueryParam string            `json:"query_param,omitempty"` // e.g. "key" (Gemini)
-	Extra      map[string]string `json:"extra,omitempty"`       // e.g. {"anthropic-version":"2023-06-01"}
-}
+// AuthScheme is defined in the shared contract package (data only). The
+// HTTP-applying behavior stays here (edge side) as a free function since the
+// contract package must not depend on net/http.
 
-func (a AuthScheme) apply(req *http.Request, token string) {
+// applyAuthScheme presents token on req per the scheme. Zero value means
+// "Authorization: Bearer <token>".
+func applyAuthScheme(a AuthScheme, req *http.Request, token string) {
 	if a.Header == "" && a.QueryParam == "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	} else {

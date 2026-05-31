@@ -341,7 +341,7 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		}
 		copyForwardHeaders(r.Header, upReq.Header)
 		// Present the leased credential per the account's auth scheme.
-		cand.AuthScheme.apply(upReq, bearer)
+		applyAuthScheme(cand.AuthScheme, upReq, bearer)
 		upReq.Header.Set("X-Edge-Id", e.EdgeID())
 
 		resp, doErr := e.upstream.Do(upReq)

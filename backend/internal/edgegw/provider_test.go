@@ -71,14 +71,14 @@ func TestAuthScheme_Apply(t *testing.T) {
 
 	// default -> Authorization: Bearer
 	r := mkReq()
-	AuthScheme{}.apply(r, "tok")
+	applyAuthScheme(AuthScheme{}, r, "tok")
 	if r.Header.Get("Authorization") != "Bearer tok" {
 		t.Fatalf("default auth: %q", r.Header.Get("Authorization"))
 	}
 
 	// anthropic-style x-api-key + version
 	r = mkReq()
-	AuthScheme{Header: "x-api-key", Extra: map[string]string{"anthropic-version": "2023-06-01"}}.apply(r, "sk-1")
+	applyAuthScheme(AuthScheme{Header: "x-api-key", Extra: map[string]string{"anthropic-version": "2023-06-01"}}, r, "sk-1")
 	if r.Header.Get("x-api-key") != "sk-1" || r.Header.Get("anthropic-version") != "2023-06-01" {
 		t.Fatalf("x-api-key scheme wrong: %v", r.Header)
 	}
@@ -88,7 +88,7 @@ func TestAuthScheme_Apply(t *testing.T) {
 
 	// gemini-style key query param
 	r = mkReq()
-	AuthScheme{QueryParam: "key"}.apply(r, "g-1")
+	applyAuthScheme(AuthScheme{QueryParam: "key"}, r, "g-1")
 	if r.URL.Query().Get("key") != "g-1" {
 		t.Fatalf("gemini query auth: %q", r.URL.RawQuery)
 	}
