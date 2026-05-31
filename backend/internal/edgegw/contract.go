@@ -17,6 +17,12 @@ type (
 	SettleRequest = contract.SettleRequest
 	SettleResult  = contract.SettleResult
 	AuthScheme    = contract.AuthScheme
+
+	RegisterRequest  = contract.RegisterRequest
+	HeartbeatRequest = contract.HeartbeatRequest
+	RegisterResponse = contract.RegisterResponse
+	EnrollRequest    = contract.EnrollRequest
+	EnrollResponse   = contract.EnrollResponse
 )
 
 var (
