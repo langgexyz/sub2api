@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -49,6 +50,15 @@ type EdgeCenterHandler struct {
 	// at enroll, so the edge can open what the center sealed. seal is mandatory.
 	tokenSecret []byte
 	tokenTTL    time.Duration
+
+	// livenessKey signs per-heartbeat liveness tokens (Ed25519, derived from
+	// JWT_SECRET so all replicas agree and the public key is reproducible for
+	// embedding into ccdirect). livenessTTL bounds each token's validity.
+	livenessKey ed25519.PrivateKey
+	livenessTTL time.Duration
+	// revokedEdges: edge ids cchub refuses to vouch for — heartbeat returns no
+	// liveness token, so those edges drain. Guarded by mu.
+	revokedEdges map[string]struct{}
 
 	// Config the center ISSUES to edges at enroll (so the edge needs no local
 	// config beyond a token): egress proxy URL, heartbeat, failover, platforms.
@@ -128,6 +138,11 @@ func NewEdgeCenterHandler(
 		// edge at enroll. Lease tokens are never returned raw.
 		tokenSecret: deriveSealSecret(),
 		tokenTTL:    2 * time.Minute,
+		livenessKey: deriveLivenessKey(),
+		// Each token outlives ~3 heartbeats so brief network hiccups don't drain a
+		// healthy edge; ccdirect drains only after the token actually expires.
+		livenessTTL:  3 * time.Minute,
+		revokedEdges: make(map[string]struct{}),
 	}
 	return h
 }
