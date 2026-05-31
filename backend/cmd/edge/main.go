@@ -32,11 +32,18 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
 )
 
 // Version is set via -ldflags "-X main.Version=...".
 var Version = "dev"
+
+// cchubLivenessPubKey is cchub's base64 Ed25519 liveness public key, baked into
+// the binary at build time via -ldflags "-X main.cchubLivenessPubKey=...". When
+// empty, liveness enforcement is disabled (dev builds). Get the value from
+// cchub's LivenessPublicKey() and embed it for production.
+var cchubLivenessPubKey = ""
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
@@ -87,6 +94,14 @@ func runServe(args []string) {
 		log.Printf("edge: warning: device key unavailable (%v); refresh will be unsigned", dkErr)
 	}
 
+	cchubPubKey, err := contract.DecodeLivenessPubKey(cchubLivenessPubKey)
+	if err != nil {
+		log.Fatalf("edge: invalid embedded cchub liveness pubkey: %v", err)
+	}
+	if cchubPubKey == nil {
+		log.Printf("edge: WARNING: no cchub liveness key embedded — liveness enforcement disabled (dev build)")
+	}
+
 	relay := edgegw.NewEdgeRelay(edgegw.EdgeConfig{
 		InternalKey:       cfg.internalKey,
 		OwnerAccessToken:  sess.OwnerAccess,
@@ -96,6 +111,7 @@ func runServe(args []string) {
 		Upstream:          upstreamClient,
 		MaxFailover:       cfg.maxFailover,
 		DeviceKey:         dk.priv,
+		CchubPubKey:       cchubPubKey,
 	})
 
 	app := &edgeApp{
