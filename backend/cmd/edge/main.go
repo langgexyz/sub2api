@@ -50,6 +50,12 @@ func main() {
 		fmt.Printf("edge %s\n", Version)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade" {
+		if err := runUpgrade(os.Args[2:]); err != nil {
+			log.Fatalf("edge upgrade: %v", err)
+		}
+		return
+	}
 	runServe(os.Args[1:])
 }
 
