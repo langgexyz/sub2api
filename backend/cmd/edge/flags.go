@@ -2,6 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"log"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -37,6 +41,14 @@ func parseFlags(args []string) edgeFlags {
 	statePath := fs.String("session", env("EDGE_SESSION", ""), "session file path (default: per-user config dir) [EDGE_SESSION]")
 	_ = fs.Parse(args)
 
+	// Enforce HTTPS to the center: ccdirect↔cchub carries owner tokens, sealed
+	// lease tokens and usage — it must not run in cleartext. A loopback center
+	// (local dev / a local cchub) is exempt; EDGE_INSECURE=1 is an explicit
+	// escape hatch for non-loopback plaintext (testing only).
+	if err := requireSecureCenter(*center, os.Getenv("EDGE_INSECURE") == "1"); err != nil {
+		log.Fatalf("edge: %v", err)
+	}
+
 	return edgeFlags{
 		addr:            *addr,
 		center:          *center,
@@ -49,6 +61,42 @@ func parseFlags(args []string) edgeFlags {
 		internalKey:     *internalKey,
 		statePath:       *statePath,
 	}
+}
+
+// requireSecureCenter rejects a non-HTTPS center URL unless it targets loopback
+// (127.0.0.1/::1/localhost) or insecure is explicitly allowed. Returns an error
+// describing why; nil means the center URL is acceptable.
+func requireSecureCenter(centerURL string, allowInsecure bool) error {
+	u, err := url.Parse(centerURL)
+	if err != nil {
+		return fmt.Errorf("invalid center URL %q: %w", centerURL, err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if u.Scheme != "http" {
+		return fmt.Errorf("center URL must be http(s): got scheme %q in %q", u.Scheme, centerURL)
+	}
+	// scheme == http from here.
+	if isLoopbackHost(u.Hostname()) {
+		return nil // local dev / local cchub
+	}
+	if allowInsecure {
+		log.Printf("edge: WARNING: using plaintext HTTP to a non-loopback center (%s) — EDGE_INSECURE=1 set; do NOT use in production", centerURL)
+		return nil
+	}
+	return fmt.Errorf("center URL must use HTTPS for a non-loopback host: %q (set EDGE_INSECURE=1 to override for testing)", centerURL)
+}
+
+// isLoopbackHost reports whether host is a loopback address or "localhost".
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
 
 func env(key, def string) string {
