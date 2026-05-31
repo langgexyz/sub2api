@@ -61,6 +61,14 @@ type EdgeCenterHandler struct {
 	// liveness token, so those edges drain. Guarded by mu.
 	revokedEdges map[string]struct{}
 
+	// releaseKey signs ccdirect self-update release manifests (Ed25519, derived
+	// from JWT_SECRET like livenessKey so the public key is reproducible for
+	// embedding into ccdirect). releaseManifests holds the latest published
+	// release per "os/arch"; the upgrade endpoint returns the signed manifest for
+	// the requesting node's platform. Guarded by mu.
+	releaseKey       ed25519.PrivateKey
+	releaseManifests map[string]contract.ReleaseManifest
+
 	// Config the center ISSUES to edges at enroll (so the edge needs no local
 	// config beyond a token): egress proxy URL, heartbeat, failover, platforms.
 	issuedProxy       string
@@ -142,8 +150,10 @@ func NewEdgeCenterHandler(
 		livenessKey: deriveLivenessKey(),
 		// Each token outlives ~3 heartbeats so brief network hiccups don't drain a
 		// healthy edge; ccdirect drains only after the token actually expires.
-		livenessTTL:  3 * time.Minute,
-		revokedEdges: make(map[string]struct{}),
+		livenessTTL:      3 * time.Minute,
+		revokedEdges:     make(map[string]struct{}),
+		releaseKey:       deriveReleaseKey(),
+		releaseManifests: make(map[string]contract.ReleaseManifest),
 	}
 	return h
 }
@@ -209,6 +219,65 @@ func (h *EdgeCenterHandler) isEdgeRevoked(edgeID string) bool {
 	defer h.mu.Unlock()
 	_, ok := h.revokedEdges[edgeID]
 	return ok
+}
+
+// deriveReleaseKey derives cchub's Ed25519 release-signing keypair from
+// JWT_SECRET (distinct domain separator from the liveness key), so every replica
+// produces the same key and operators can reproduce the public key to embed into
+// ccdirect. Dev fallback: a random per-process key.
+func deriveReleaseKey() ed25519.PrivateKey {
+	if s := os.Getenv("JWT_SECRET"); s != "" {
+		seed := sha256.Sum256([]byte("ccdirect-release/" + s))
+		return ed25519.NewKeyFromSeed(seed[:])
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		seed := sha256.Sum256([]byte("ccdirect-release-fallback"))
+		return ed25519.NewKeyFromSeed(seed[:])
+	}
+	return priv
+}
+
+// ReleasePublicKey returns the base64 Ed25519 public key ccdirect must embed
+// (via ldflags) to verify release manifests.
+func (h *EdgeCenterHandler) ReleasePublicKey() string {
+	pub, ok := h.releaseKey.Public().(ed25519.PublicKey)
+	if !ok {
+		return ""
+	}
+	return contract.EncodeReleasePubKey(pub)
+}
+
+// SetReleaseManifest publishes the latest ccdirect release for one os/arch. The
+// manifest is signed here with the release key, so the upgrade endpoint can serve
+// it without re-signing per request. version/url/sha256 come from the release
+// pipeline (operator-controlled).
+func (h *EdgeCenterHandler) SetReleaseManifest(version, goos, goarch, url, sha256hex string) {
+	m := contract.SignRelease(h.releaseKey, contract.ReleaseManifest{
+		Version: version, OS: goos, Arch: goarch, URL: url, SHA256: sha256hex,
+	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.releaseManifests[goos+"/"+goarch] = m
+}
+
+// Release returns the signed release manifest for the requesting node's os/arch
+// (query params os= and arch=). When no release is published for that platform
+// it returns an empty (unsigned) manifest with 200, which ccdirect treats as
+// "nothing to upgrade to". ccdirect verifies the signature with its embedded
+// release public key before trusting the url+checksum.
+// GET /edge/v1/release?os=&arch=
+func (h *EdgeCenterHandler) Release(c *gin.Context) {
+	goos := c.Query("os")
+	goarch := c.Query("arch")
+	if goos == "" || goarch == "" {
+		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "os and arch are required")
+		return
+	}
+	h.mu.Lock()
+	m := h.releaseManifests[goos+"/"+goarch]
+	h.mu.Unlock()
+	c.JSON(http.StatusOK, m)
 }
 
 // Enroll exchanges an enroll key for the edge's full operating config: an
