@@ -82,18 +82,8 @@ func (s *CenterServer) Handler() http.Handler {
 	return mux
 }
 
-// RegisterRequest is an edge announcing itself (and its stable egress IP) to the center.
-type RegisterRequest struct {
-	EdgeID    string   `json:"edge_id"`
-	EnrollKey string   `json:"enroll_key,omitempty"`
-	EgressIP  string   `json:"egress_ip"`
-	Platforms []string `json:"platforms,omitempty"`
-}
-
-// HeartbeatRequest keeps an edge marked live.
-type HeartbeatRequest struct {
-	EdgeID string `json:"edge_id"`
-}
+// RegisterRequest / HeartbeatRequest moved to the shared contract package
+// (aliased in contract.go) — both ccdirect and cchub use them.
 
 func (s *CenterServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

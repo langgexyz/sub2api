@@ -13,22 +13,8 @@ import (
 // parameters (heartbeat interval, failover count, platforms) so the edge needs
 // no local flags beyond the token. See cmd/edge and internal/edgegw/enroll.
 
-// EnrollRequest is what an edge sends to /v1/enroll (key from the user's token).
-type EnrollRequest struct {
-	Key    string `json:"key"`
-	EdgeID string `json:"edge_id,omitempty"` // optional preferred id; the center assigns one if empty
-}
-
-// EnrollResponse is the center-issued edge configuration.
-type EnrollResponse struct {
-	EdgeID           string   `json:"edge_id"`
-	CenterURL        string   `json:"center_url,omitempty"`
-	TokenSecret      string   `json:"token_secret,omitempty"`   // seal secret so the edge can open sealed lease tokens
-	UpstreamProxy    string   `json:"upstream_proxy,omitempty"` // center-controlled egress proxy URL
-	HeartbeatSeconds int      `json:"heartbeat_seconds"`
-	MaxFailover      int      `json:"max_failover"`
-	Platforms        []string `json:"platforms,omitempty"`
-}
+// EnrollRequest / EnrollResponse moved to the shared contract package (aliased
+// in contract.go) — both ccdirect and cchub use them.
 
 // SetEnrollConfig sets the parameters the center issues to edges at enroll time.
 func (s *CenterServer) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFailover int, platforms []string) {
