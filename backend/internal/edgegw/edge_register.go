@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // Edge -> center registration + heartbeat. On startup the edge announces itself
@@ -46,6 +48,16 @@ func (e *EdgeRelay) heartbeat(ctx context.Context) (known bool, err error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return false, nil
+	}
+	// Parse + verify the cchub-signed liveness token; record its expiry so the
+	// relay keeps serving. A missing/invalid token (revoked edge, impostor, clock
+	// skew) is simply not recorded — the relay drains once the last valid token
+	// expires. Verification is skipped when no cchub pubkey is embedded.
+	var hbResp contract.HeartbeatResponse
+	if derr := json.NewDecoder(resp.Body).Decode(&hbResp); derr == nil && hbResp.Liveness != nil && e.cchubPubKey != nil {
+		if verr := contract.VerifyLiveness(e.cchubPubKey, *hbResp.Liveness, e.EdgeID(), e.now); verr == nil {
+			e.recordLiveness(hbResp.Liveness.ExpiresAt)
+		}
 	}
 	return true, nil
 }

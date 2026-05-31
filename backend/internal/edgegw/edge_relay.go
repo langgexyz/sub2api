@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -47,6 +48,13 @@ type EdgeRelay struct {
 	secMu       sync.RWMutex
 	edgeID      string
 	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
+
+	// Liveness: cchubPubKey verifies cchub-signed heartbeat liveness tokens. When
+	// nil, liveness enforcement is disabled (no key embedded — dev). livenessExp
+	// holds the unix-seconds expiry of the latest valid token; the relay drains
+	// (refuses new requests) once it passes.
+	cchubPubKey ed25519.PublicKey
+	livenessExp atomic.Int64
 }
 
 // EdgeConfig configures an EdgeRelay.
@@ -75,6 +83,11 @@ type EdgeConfig struct {
 	// DeviceKey, if set, is the per-machine Ed25519 private key the edge signs
 	// bound refresh requests with. Nil => unbound (refresh sent unsigned).
 	DeviceKey ed25519.PrivateKey
+
+	// CchubPubKey, when set, enables liveness enforcement: the relay verifies
+	// each heartbeat's signed liveness token with this key and drains when no
+	// fresh valid token has arrived. Empty/nil = enforcement disabled (dev).
+	CchubPubKey ed25519.PublicKey
 }
 
 // NewEdgeRelay builds an edge relay.
@@ -115,8 +128,25 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 		maxFailover: mf,
 		maxBodyByte: maxBody,
 		deviceKey:   cfg.DeviceKey,
+		cchubPubKey: cfg.CchubPubKey,
 		now:         now,
 	}
+}
+
+// recordLiveness stores the expiry of a freshly-verified liveness token.
+func (e *EdgeRelay) recordLiveness(exp int64) {
+	e.livenessExp.Store(exp)
+}
+
+// livenessHealthy reports whether the relay may serve new requests. True when
+// liveness enforcement is disabled (no cchub pubkey embedded) or a currently
+// valid liveness token is held. Once the last token expires — cchub unreachable,
+// impostor, or this edge revoked — it returns false and the relay drains.
+func (e *EdgeRelay) livenessHealthy() bool {
+	if e.cchubPubKey == nil {
+		return true // enforcement disabled (dev / no key embedded)
+	}
+	return e.now().Unix() <= e.livenessExp.Load()
 }
 
 // SetOnRefresh registers a callback invoked whenever the owner token pair is
@@ -232,6 +262,13 @@ func (e *EdgeRelay) Handler() http.Handler {
 func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Liveness drain: refuse NEW requests when cchub has not vouched for this edge
+	// recently (unreachable / impostor / this edge revoked). Requests already past
+	// this point finish normally — graceful drain.
+	if !e.livenessHealthy() {
+		writeJSONError(w, http.StatusServiceUnavailable, "draining", "edge is draining: no current cchub liveness")
 		return
 	}
 	defer func() { _ = r.Body.Close() }()

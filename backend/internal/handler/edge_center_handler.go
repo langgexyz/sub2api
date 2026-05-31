@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -49,6 +51,15 @@ type EdgeCenterHandler struct {
 	// at enroll, so the edge can open what the center sealed. seal is mandatory.
 	tokenSecret []byte
 	tokenTTL    time.Duration
+
+	// livenessKey signs per-heartbeat liveness tokens (Ed25519, derived from
+	// JWT_SECRET so all replicas agree and the public key is reproducible for
+	// embedding into ccdirect). livenessTTL bounds each token's validity.
+	livenessKey ed25519.PrivateKey
+	livenessTTL time.Duration
+	// revokedEdges: edge ids cchub refuses to vouch for — heartbeat returns no
+	// liveness token, so those edges drain. Guarded by mu.
+	revokedEdges map[string]struct{}
 
 	// Config the center ISSUES to edges at enroll (so the edge needs no local
 	// config beyond a token): egress proxy URL, heartbeat, failover, platforms.
@@ -128,6 +139,11 @@ func NewEdgeCenterHandler(
 		// edge at enroll. Lease tokens are never returned raw.
 		tokenSecret: deriveSealSecret(),
 		tokenTTL:    2 * time.Minute,
+		livenessKey: deriveLivenessKey(),
+		// Each token outlives ~3 heartbeats so brief network hiccups don't drain a
+		// healthy edge; ccdirect drains only after the token actually expires.
+		livenessTTL:  3 * time.Minute,
+		revokedEdges: make(map[string]struct{}),
 	}
 	return h
 }
@@ -148,6 +164,51 @@ func deriveSealSecret() []byte {
 		return []byte("edge-lease-seal-fallback-key-0001")
 	}
 	return []byte(hex.EncodeToString(b))
+}
+
+// deriveLivenessKey derives cchub's Ed25519 liveness keypair from JWT_SECRET, so
+// every replica produces the same key and operators can reproduce the public key
+// to embed into ccdirect. Dev fallback: a random per-process key.
+func deriveLivenessKey() ed25519.PrivateKey {
+	if s := os.Getenv("JWT_SECRET"); s != "" {
+		seed := sha256.Sum256([]byte("ccdirect-liveness/" + s))
+		return ed25519.NewKeyFromSeed(seed[:])
+	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		seed := sha256.Sum256([]byte("ccdirect-liveness-fallback"))
+		return ed25519.NewKeyFromSeed(seed[:])
+	}
+	return priv
+}
+
+// LivenessPublicKey returns the base64 Ed25519 public key ccdirect must embed
+// (via ldflags) to verify liveness tokens.
+func (h *EdgeCenterHandler) LivenessPublicKey() string {
+	pub, ok := h.livenessKey.Public().(ed25519.PublicKey)
+	if !ok {
+		return ""
+	}
+	return contract.EncodeLivenessPubKey(pub)
+}
+
+// SetEdgeRevoked marks (or clears) an edge id as revoked. A revoked edge gets no
+// liveness token on heartbeat and drains within the liveness TTL.
+func (h *EdgeCenterHandler) SetEdgeRevoked(edgeID string, revoked bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if revoked {
+		h.revokedEdges[edgeID] = struct{}{}
+	} else {
+		delete(h.revokedEdges, edgeID)
+	}
+}
+
+func (h *EdgeCenterHandler) isEdgeRevoked(edgeID string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, ok := h.revokedEdges[edgeID]
+	return ok
 }
 
 // Enroll exchanges an enroll key for the edge's full operating config: an
@@ -249,7 +310,14 @@ func (h *EdgeCenterHandler) Heartbeat(c *gin.Context) {
 		edgeCenterError(c, http.StatusNotFound, "unknown_edge", "edge not registered")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	resp := contract.HeartbeatResponse{OK: true}
+	// Vouch for the edge with a fresh signed liveness token, UNLESS it is revoked
+	// — a revoked edge gets ok:true but no token, so it drains within the TTL.
+	if h.livenessKey != nil && !h.isEdgeRevoked(req.EdgeID) {
+		tok := contract.SignLiveness(h.livenessKey, req.EdgeID, h.livenessTTL, time.Now)
+		resp.Liveness = &tok
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // Edges lists the live edge fleet (admin/observability).
