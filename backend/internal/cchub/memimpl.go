@@ -1,4 +1,4 @@
-package edgegw
+package cchub
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // This file holds in-memory, dependency-free implementations of the control
@@ -19,16 +21,16 @@ import (
 
 // AccountConfig describes one upstream account the center can schedule.
 type AccountConfig struct {
-	ID              string            `json:"id"`
-	Platform        string            `json:"platform,omitempty"`
-	HomeEdgeID      string            `json:"home_edge_id,omitempty"`
-	UpstreamBaseURL string            `json:"upstream_base_url"`
-	UpstreamToken   string            `json:"upstream_token"`            // the real upstream credential (never leaves the center as-is)
-	ModelMapping    map[string]string `json:"model_mapping,omitempty"`   // requested -> upstream model
-	Models          []string          `json:"models,omitempty"`          // supported requested models; empty = all
-	MaxConcurrency  int               `json:"max_concurrency,omitempty"` // per-account concurrency cap; 0 = unlimited
-	GroupAPIKeys    []string          `json:"group_api_keys,omitempty"`  // api keys allowed to use this account; empty = all
-	AuthScheme      AuthScheme        `json:"auth_scheme,omitempty"`     // how the edge presents the token upstream
+	ID              string              `json:"id"`
+	Platform        string              `json:"platform,omitempty"`
+	HomeEdgeID      string              `json:"home_edge_id,omitempty"`
+	UpstreamBaseURL string              `json:"upstream_base_url"`
+	UpstreamToken   string              `json:"upstream_token"`            // the real upstream credential (never leaves the center as-is)
+	ModelMapping    map[string]string   `json:"model_mapping,omitempty"`   // requested -> upstream model
+	Models          []string            `json:"models,omitempty"`          // supported requested models; empty = all
+	MaxConcurrency  int                 `json:"max_concurrency,omitempty"` // per-account concurrency cap; 0 = unlimited
+	GroupAPIKeys    []string            `json:"group_api_keys,omitempty"`  // api keys allowed to use this account; empty = all
+	AuthScheme      contract.AuthScheme `json:"auth_scheme,omitempty"`     // how the edge presents the token upstream
 }
 
 func (a AccountConfig) supportsModel(model string) bool {
@@ -114,7 +116,7 @@ func (r *MemRegistry) releaseLoad(accountID string) {
 // edge-affinity first (accounts homed on the requesting edge come first, so an
 // edge serves its own accounts and the upstream call egresses from that edge's
 // stable IP) and least-load second. Cross-edge candidates remain as failover.
-func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, error) {
+func (r *MemRegistry) Select(_ context.Context, req contract.LeaseRequest) ([]contract.Candidate, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -136,7 +138,7 @@ func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, 
 		pool = append(pool, scored{acc: a, load: load, affinity: affinity})
 	}
 	if len(pool) == 0 {
-		return nil, ErrNoAccount
+		return nil, contract.ErrNoAccount
 	}
 	// Stable sort by (affinity asc, load asc) via insertion sort (pools are tiny).
 	less := func(a, b scored) bool {
@@ -151,9 +153,9 @@ func (r *MemRegistry) Select(_ context.Context, req LeaseRequest) ([]Candidate, 
 		}
 	}
 
-	candidates := make([]Candidate, 0, len(pool))
+	candidates := make([]contract.Candidate, 0, len(pool))
 	for _, s := range pool {
-		candidates = append(candidates, Candidate{
+		candidates = append(candidates, contract.Candidate{
 			AccountID:       s.acc.ID,
 			HomeEdgeID:      s.acc.HomeEdgeID,
 			Platform:        s.acc.Platform,
@@ -192,7 +194,7 @@ func (a *MemAdmission) Reserve(_ context.Context, apiKey, _ string) (string, err
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.maxPerKey > 0 && a.perKey[apiKey] >= a.maxPerKey {
-		return "", ErrConcurrencyFull
+		return "", contract.ErrConcurrencyFull
 	}
 	a.perKey[apiKey]++
 	a.seq++
@@ -251,7 +253,7 @@ func (s *MemSticky) Bind(_ context.Context, key, accountID string) {
 
 // UsageRecord is one settled usage row captured by MemUsageSink.
 type UsageRecord struct {
-	SettleRequest
+	contract.SettleRequest
 	Charged float64
 }
 
@@ -269,7 +271,7 @@ func NewMemUsageSink() *MemUsageSink {
 }
 
 // Record implements UsageSink.
-func (u *MemUsageSink) Record(_ context.Context, s SettleRequest) (float64, error) {
+func (u *MemUsageSink) Record(_ context.Context, s contract.SettleRequest) (float64, error) {
 	charged := float64(s.InputTokens+s.OutputTokens) / 1000.0
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -318,42 +320,5 @@ func (m *HMACMinter) Mint(accountID string, ttl time.Duration) (string, int64) {
 	return token, exp
 }
 
-// UpstreamBearer extracts the real upstream bearer from a minted token. It is
-// what the edge sends upstream. (In a stricter build the edge would treat the
-// whole envelope as opaque; here we expose the bearer so the demo edge can set
-// a normal Authorization header.)
-func UpstreamBearer(minted string) string {
-	dot := -1
-	for i := 0; i < len(minted); i++ {
-		if minted[i] == '.' {
-			dot = i
-			break
-		}
-	}
-	if dot < 0 {
-		return minted
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(minted[:dot])
-	if err != nil {
-		return minted
-	}
-	// payload = accountID|exp|upstreamToken
-	parts := splitN(string(raw), '|', 3)
-	if len(parts) == 3 {
-		return parts[2]
-	}
-	return minted
-}
-
-func splitN(s string, sep byte, n int) []string {
-	out := make([]string, 0, n)
-	start := 0
-	for i := 0; i < len(s) && len(out) < n-1; i++ {
-		if s[i] == sep {
-			out = append(out, s[start:i])
-			start = i + 1
-		}
-	}
-	out = append(out, s[start:])
-	return out
-}
+// UpstreamBearer + splitN moved to the shared contract package (cchub mints,
+// ccdirect extracts — see contract/upstream.go).

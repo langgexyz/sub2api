@@ -1,4 +1,4 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
@@ -15,13 +15,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
-// EdgeRelay is the data plane. It runs on a VPS with a stable egress IP, holds
+// Relay is the data plane. It runs on a VPS with a stable egress IP, holds
 // the client connection, leases an account from the center, performs the
 // upstream request itself (from this node's IP), streams the response back, and
 // reports usage via Settle. It carries no durable state.
-type EdgeRelay struct {
+type Relay struct {
 	enrollKey   string
 	internalKey string
 	owner       *ownerToken // always non-nil; empty tokens => logged out
@@ -62,8 +64,8 @@ type EdgeRelay struct {
 	reporter *anomalyReporter
 }
 
-// EdgeConfig configures an EdgeRelay.
-type EdgeConfig struct {
+// Config configures an Relay.
+type Config struct {
 	EdgeID    string
 	EnrollKey string // presented to the center at registration
 	// InternalKey gates /internal/egress (center-only control egress). When
@@ -95,8 +97,8 @@ type EdgeConfig struct {
 	CchubPubKey ed25519.PublicKey
 }
 
-// NewEdgeRelay builds an edge relay.
-func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
+// NewRelay builds an edge relay.
+func NewRelay(cfg Config) *Relay {
 	ch := cfg.CenterHTTP
 	if ch == nil {
 		ch = &http.Client{Timeout: 10 * time.Second}
@@ -121,7 +123,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 	// relay rejects requests until Login sets them. This lets device login
 	// populate tokens at runtime without rebuilding the relay.
 	owner := &ownerToken{access: cfg.OwnerAccessToken, refresh: cfg.OwnerRefreshToken}
-	return &EdgeRelay{
+	return &Relay{
 		edgeID:      cfg.EdgeID,
 		enrollKey:   cfg.EnrollKey,
 		internalKey: cfg.InternalKey,
@@ -140,7 +142,7 @@ func NewEdgeRelay(cfg EdgeConfig) *EdgeRelay {
 }
 
 // recordLiveness stores the expiry of a freshly-verified liveness token.
-func (e *EdgeRelay) recordLiveness(exp int64) {
+func (e *Relay) recordLiveness(exp int64) {
 	e.livenessExp.Store(exp)
 }
 
@@ -148,7 +150,7 @@ func (e *EdgeRelay) recordLiveness(exp int64) {
 // liveness enforcement is disabled (no cchub pubkey embedded) or a currently
 // valid liveness token is held. Once the last token expires — cchub unreachable,
 // impostor, or this edge revoked — it returns false and the relay drains.
-func (e *EdgeRelay) livenessHealthy() bool {
+func (e *Relay) livenessHealthy() bool {
 	if e.cchubPubKey == nil {
 		return true // enforcement disabled (dev / no key embedded)
 	}
@@ -158,7 +160,7 @@ func (e *EdgeRelay) livenessHealthy() bool {
 // SetOnRefresh registers a callback invoked whenever the owner token pair is
 // rotated (login or auto-refresh), so the caller can persist it to disk. Not
 // safe to call concurrently with serving; set it once before Handler runs.
-func (e *EdgeRelay) SetOnRefresh(fn func(access, refresh string)) {
+func (e *Relay) SetOnRefresh(fn func(access, refresh string)) {
 	e.onRefresh = fn
 }
 
@@ -166,7 +168,7 @@ func (e *EdgeRelay) SetOnRefresh(fn func(access, refresh string)) {
 // obtained from the center (GET /edge/v1/config), making the relay able to
 // serve. Safe to call while serving. It also fires onRefresh so the new pair is
 // persisted.
-func (e *EdgeRelay) Login(access, refresh, edgeID string, tokenSecret []byte) {
+func (e *Relay) Login(access, refresh, edgeID string, tokenSecret []byte) {
 	e.owner.set(access, refresh)
 	e.secMu.Lock()
 	e.edgeID = edgeID
@@ -180,7 +182,7 @@ func (e *EdgeRelay) Login(access, refresh, edgeID string, tokenSecret []byte) {
 // Logout clears the owner tokens, edge id and seal secret. Subsequent lease
 // calls fail auth (401) so the relay stops serving until the next Login. Fires
 // onRefresh with empty strings so persisted creds are cleared too.
-func (e *EdgeRelay) Logout() {
+func (e *Relay) Logout() {
 	e.owner.clear()
 	e.secMu.Lock()
 	e.edgeID = ""
@@ -192,24 +194,24 @@ func (e *EdgeRelay) Logout() {
 }
 
 // EdgeID returns the current edge id (empty until login).
-func (e *EdgeRelay) EdgeID() string {
+func (e *Relay) EdgeID() string {
 	e.secMu.RLock()
 	defer e.secMu.RUnlock()
 	return e.edgeID
 }
 
 // LoggedIn reports whether the relay currently holds an owner access token.
-func (e *EdgeRelay) LoggedIn() bool {
+func (e *Relay) LoggedIn() bool {
 	return e.owner.accessToken() != ""
 }
 
 // OwnerAccess returns the current owner access JWT (for status / JWT parsing).
-func (e *EdgeRelay) OwnerAccess() string {
+func (e *Relay) OwnerAccess() string {
 	return e.owner.accessToken()
 }
 
 // OwnerRefresh returns the current owner refresh token (for server-side logout).
-func (e *EdgeRelay) OwnerRefresh() string {
+func (e *Relay) OwnerRefresh() string {
 	return e.owner.refreshToken()
 }
 
@@ -217,14 +219,14 @@ func (e *EdgeRelay) OwnerRefresh() string {
 // the rotated pair (through onRefresh). Returns true on success. Exposed so the
 // CLI can bring a relay online from a saved session whose access token expired
 // while the edge was stopped.
-func (e *EdgeRelay) RefreshOwner(ctx context.Context) bool {
+func (e *Relay) RefreshOwner(ctx context.Context) bool {
 	return e.refreshOwner(ctx)
 }
 
 // SetSeal installs the edge id + seal secret without touching the owner tokens.
 // Used to bring the relay online from an existing session (after fetching
 // /edge/v1/config) without overwriting the token pair.
-func (e *EdgeRelay) SetSeal(edgeID string, tokenSecret []byte) {
+func (e *Relay) SetSeal(edgeID string, tokenSecret []byte) {
 	e.secMu.Lock()
 	e.edgeID = edgeID
 	e.tokenSecret = tokenSecret
@@ -233,7 +235,7 @@ func (e *EdgeRelay) SetSeal(edgeID string, tokenSecret []byte) {
 
 // sealState returns the current edge id + seal secret together under one read
 // lock, so the seal token is always opened against the matching edge id.
-func (e *EdgeRelay) sealState() (edgeID string, secret []byte) {
+func (e *Relay) sealState() (edgeID string, secret []byte) {
 	e.secMu.RLock()
 	defer e.secMu.RUnlock()
 	return e.edgeID, e.tokenSecret
@@ -241,18 +243,18 @@ func (e *EdgeRelay) sealState() (edgeID string, secret []byte) {
 
 // unwrapToken resolves the real upstream credential from a lease token. When a
 // token secret is configured the token is an AEAD-sealed envelope bound to this
-// edge + an expiry (OpenLeaseToken); otherwise it is raw (or a PoC HMAC
-// envelope handled by UpstreamBearer).
-func (e *EdgeRelay) unwrapToken(leaseToken string) (string, error) {
+// edge + an expiry (contract.OpenLeaseToken); otherwise it is raw (or a PoC HMAC
+// envelope handled by contract.UpstreamBearer).
+func (e *Relay) unwrapToken(leaseToken string) (string, error) {
 	if edgeID, secret := e.sealState(); len(secret) > 0 {
-		return OpenLeaseToken(leaseToken, edgeID, secret, e.now)
+		return contract.OpenLeaseToken(leaseToken, edgeID, secret, e.now)
 	}
-	return UpstreamBearer(leaseToken), nil
+	return contract.UpstreamBearer(leaseToken), nil
 }
 
 // Handler returns the edge's HTTP mux. It accepts the upstream-compatible paths
 // and relays them.
-func (e *EdgeRelay) Handler() http.Handler {
+func (e *Relay) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -265,7 +267,7 @@ func (e *EdgeRelay) Handler() http.Handler {
 	return mux
 }
 
-func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
+func (e *Relay) relay(w http.ResponseWriter, r *http.Request) {
 	// Recover panics so one bad request cannot crash a long-lived daemon; the
 	// recovered panic is reported to cchub for service-quality visibility.
 	defer func() {
@@ -294,7 +296,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apiKey := extractAPIKey(r)
-	model, stream := parseModelStream(body)
+	model, stream := ParseModelStream(body)
 	if model == "" {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "model is required")
 		return
@@ -306,7 +308,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	sessionHash := sessionHashFor(apiKey, model, body)
 
 	// 1. Lease an account from the center.
-	lease, status, err := e.callLease(r.Context(), LeaseRequest{
+	lease, status, err := e.callLease(r.Context(), contract.LeaseRequest{
 		APIKey:      apiKey,
 		Model:       model,
 		SessionHash: sessionHash,
@@ -330,7 +332,7 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 	latency := e.now().Sub(start).Milliseconds()
 
 	// 3. Settle: report usage so the center reconciles quota + releases the slot.
-	settle := SettleRequest{
+	settle := contract.SettleRequest{
 		RequestID:           requestID,
 		APIKey:              apiKey,
 		AccountID:           used.AccountID,
@@ -358,12 +360,12 @@ func (e *EdgeRelay) relay(w http.ResponseWriter, r *http.Request) {
 // already started (after which failover is unsafe). Returns the used candidate,
 // the upstream status code, token usage, whether bytes were written to the
 // client, and any terminal error.
-func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte, reqModel string, lease *LeaseResult) (used Candidate, code int, usage Usage, streamed bool, err error) {
+func (e *Relay) forward(r *http.Request, w http.ResponseWriter, body []byte, reqModel string, lease *contract.LeaseResult) (used contract.Candidate, code int, usage Usage, streamed bool, err error) {
 	limit := e.maxFailover
 	if limit > len(lease.Candidates) {
 		limit = len(lease.Candidates)
 	}
-	_, stream := parseModelStream(body)
+	_, stream := ParseModelStream(body)
 	for i := 0; i < limit; i++ {
 		cand := lease.Candidates[i]
 		used = cand
@@ -432,12 +434,12 @@ func (e *EdgeRelay) forward(r *http.Request, w http.ResponseWriter, body []byte,
 		return used, code, usage, streamed, nil
 	}
 	if err == nil {
-		err = ErrNoAccount
+		err = contract.ErrNoAccount
 	}
 	return used, code, usage, streamed, err
 }
 
-func (e *EdgeRelay) callLease(ctx context.Context, req LeaseRequest) (*LeaseResult, int, error) {
+func (e *Relay) callLease(ctx context.Context, req contract.LeaseRequest) (*contract.LeaseResult, int, error) {
 	buf, _ := json.Marshal(req)
 	do := func() (*http.Response, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/lease", bytes.NewReader(buf))
@@ -463,14 +465,14 @@ func (e *EdgeRelay) callLease(ctx context.Context, req LeaseRequest) (*LeaseResu
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode, decodeAPIError(resp.Body)
 	}
-	var out LeaseResult
+	var out contract.LeaseResult
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, resp.StatusCode, err
 	}
 	return &out, resp.StatusCode, nil
 }
 
-func (e *EdgeRelay) callSettle(ctx context.Context, req SettleRequest) {
+func (e *Relay) callSettle(ctx context.Context, req contract.SettleRequest) {
 	buf, _ := json.Marshal(req)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/settle", bytes.NewReader(buf))
 	if err != nil {
@@ -503,7 +505,7 @@ func extractAPIKey(r *http.Request) string {
 	return auth
 }
 
-func parseModelStream(body []byte) (model string, stream bool) {
+func ParseModelStream(body []byte) (model string, stream bool) {
 	var m struct {
 		Model  string `json:"model"`
 		Stream bool   `json:"stream"`

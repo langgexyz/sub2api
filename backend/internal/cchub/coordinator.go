@@ -1,14 +1,16 @@
-package edgegw
+package cchub
 
 import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // Admission is the central concurrency/quota gate. Reserve is non-blocking: it
-// either reserves a slot and returns its id, or returns ErrWaitQueueFull /
-// ErrConcurrencyFull. The blocking wait-with-keepalive that the monolith does
+// either reserves a slot and returns its id, or returns contract.ErrWaitQueueFull /
+// contract.ErrConcurrencyFull. The blocking wait-with-keepalive that the monolith does
 // today lives at the edge (which holds the client connection); the center only
 // counts. Release frees the slot at Settle time.
 type Admission interface {
@@ -23,10 +25,10 @@ type Billing interface {
 }
 
 // Scheduler returns ranked schedulable candidates for the request, excluding
-// none initially. Candidates[0] is the best pick. Returns ErrNoAccount when the
+// none initially. Candidates[0] is the best pick. Returns contract.ErrNoAccount when the
 // group has no usable account.
 type Scheduler interface {
-	Select(ctx context.Context, req LeaseRequest) ([]Candidate, error)
+	Select(ctx context.Context, req contract.LeaseRequest) ([]contract.Candidate, error)
 }
 
 // StickyStore maps a session hash to a previously bound account so a
@@ -40,7 +42,7 @@ type StickyStore interface {
 // UsageSink records settled usage and returns the quota charged. It must be
 // idempotent on requestID at the ledger level; the coordinator also dedupes.
 type UsageSink interface {
-	Record(ctx context.Context, s SettleRequest) (charged float64, err error)
+	Record(ctx context.Context, s contract.SettleRequest) (charged float64, err error)
 }
 
 // TokenMinter produces the short-lived credential the edge presents upstream.
@@ -67,11 +69,11 @@ type Coordinator struct {
 
 	leaseTTL      time.Duration
 	leaseEstimate float64
-	costOf        func(SettleRequest) float64
+	costOf        func(contract.SettleRequest) float64
 	now           Clock
 
 	mu      sync.Mutex
-	settled map[string]SettleResult // requestID -> result, for idempotency
+	settled map[string]contract.SettleResult // requestID -> result, for idempotency
 }
 
 // QuotaReserver pre-debits an estimated cost at Lease and reconciles the actual
@@ -97,7 +99,7 @@ type Config struct {
 	LeaseEstimate float64
 	// CostFunc derives the actual cost reconciled at Settle. Defaults to
 	// (input+output)/1000.
-	CostFunc func(SettleRequest) float64
+	CostFunc func(contract.SettleRequest) float64
 	LeaseTTL time.Duration
 	Now      Clock
 }
@@ -115,7 +117,7 @@ func NewCoordinator(cfg Config) *Coordinator {
 	}
 	costOf := cfg.CostFunc
 	if costOf == nil {
-		costOf = func(s SettleRequest) float64 {
+		costOf = func(s contract.SettleRequest) float64 {
 			return float64(s.InputTokens+s.OutputTokens) / 1000.0
 		}
 	}
@@ -131,16 +133,16 @@ func NewCoordinator(cfg Config) *Coordinator {
 		leaseEstimate: cfg.LeaseEstimate,
 		costOf:        costOf,
 		now:           now,
-		settled:       make(map[string]SettleResult),
+		settled:       make(map[string]contract.SettleResult),
 	}
 }
 
 // Lease runs the admission -> billing -> sticky -> schedule pipeline and mints
 // short-lived tokens for the ranked candidates. On any error after a slot is
 // reserved, the slot is released so a rejected lease never leaks admission.
-func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResult, error) {
+func (co *Coordinator) Lease(ctx context.Context, req contract.LeaseRequest) (*contract.LeaseResult, error) {
 	if req.APIKey == "" || req.Model == "" {
-		return nil, ErrInvalidRequest
+		return nil, contract.ErrInvalidRequest
 	}
 
 	// 1. Admission: reserve a concurrency slot (non-blocking limit check).
@@ -172,7 +174,7 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 	// 2b. Quota pre-debit (prevents double-spend across concurrent edges).
 	if co.quota != nil && req.RequestID != "" {
 		if err := co.quota.Reserve(req.APIKey, req.RequestID, co.leaseEstimate); err != nil {
-			return nil, ErrBillingIneligible
+			return nil, contract.ErrBillingIneligible
 		}
 		reserved = true
 	}
@@ -183,7 +185,7 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 		return nil, err
 	}
 	if len(candidates) == 0 {
-		return nil, ErrNoAccount
+		return nil, contract.ErrNoAccount
 	}
 
 	// 4. Sticky: if this session was bound to an account that is still in the
@@ -208,7 +210,7 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 	}
 
 	ok = true
-	return &LeaseResult{
+	return &contract.LeaseResult{
 		RequestID:  req.RequestID,
 		SlotID:     slotID,
 		ExpiresAt:  expiresAt,
@@ -220,7 +222,7 @@ func (co *Coordinator) Lease(ctx context.Context, req LeaseRequest) (*LeaseResul
 // rebinds the sticky session on success. It is idempotent on RequestID: a
 // duplicate Settle returns the original result without double-charging or
 // double-releasing.
-func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleResult, error) {
+func (co *Coordinator) Settle(ctx context.Context, req contract.SettleRequest) (*contract.SettleResult, error) {
 	if req.RequestID != "" {
 		co.mu.Lock()
 		if prev, dup := co.settled[req.RequestID]; dup {
@@ -232,7 +234,7 @@ func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleRe
 		// short-circuits BEFORE any side effects (usage/admission/quota), closing
 		// the check-then-act race that would otherwise double-charge and
 		// double-release.
-		co.settled[req.RequestID] = SettleResult{RequestID: req.RequestID, Accepted: true}
+		co.settled[req.RequestID] = contract.SettleResult{RequestID: req.RequestID, Accepted: true}
 		co.mu.Unlock()
 	}
 
@@ -257,7 +259,7 @@ func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleRe
 		co.sticky.Bind(ctx, req.SessionHash, req.AccountID)
 	}
 
-	res := SettleResult{
+	res := contract.SettleResult{
 		RequestID:    req.RequestID,
 		Accepted:     true,
 		QuotaCharged: charged,
@@ -272,7 +274,7 @@ func (co *Coordinator) Settle(ctx context.Context, req SettleRequest) (*SettleRe
 
 // promote moves the candidate with accountID to the front, preserving the
 // relative order of the rest. If not present, the slice is unchanged.
-func promote(candidates []Candidate, accountID string) []Candidate {
+func promote(candidates []contract.Candidate, accountID string) []contract.Candidate {
 	idx := -1
 	for i := range candidates {
 		if candidates[i].AccountID == accountID {
@@ -284,7 +286,7 @@ func promote(candidates []Candidate, accountID string) []Candidate {
 		return candidates
 	}
 	chosen := candidates[idx]
-	out := make([]Candidate, 0, len(candidates))
+	out := make([]contract.Candidate, 0, len(candidates))
 	out = append(out, chosen)
 	for i := range candidates {
 		if i != idx {

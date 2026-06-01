@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgetls"
 )
@@ -46,17 +46,17 @@ func main() {
 		log.Fatalf("no accounts configured in %s", *accountsPath)
 	}
 
-	registry := edgegw.NewMemRegistry(accounts)
+	registry := cchub.NewMemRegistry(accounts)
 	edges := edgereg.New(*edgeTTL, time.Now)
-	coord := edgegw.NewCoordinator(edgegw.Config{
-		Admission: edgegw.NewMemAdmission(*maxPerKey),
+	coord := cchub.NewCoordinator(cchub.Config{
+		Admission: cchub.NewMemAdmission(*maxPerKey),
 		Scheduler: registry,
-		Sticky:    edgegw.NewMemSticky(),
-		Usage:     edgegw.NewMemUsageSink(),
-		Minter:    edgegw.NewHMACMinter(registry, []byte(*secret), time.Now),
+		Sticky:    cchub.NewMemSticky(),
+		Usage:     cchub.NewMemUsageSink(),
+		Minter:    cchub.NewHMACMinter(registry, []byte(*secret), time.Now),
 		LeaseTTL:  *leaseTTL,
 	})
-	server := edgegw.NewCenterServer(coord, registry, edges)
+	server := cchub.NewServer(coord, registry, edges)
 	if *enrollKeys != "" {
 		server.SetEnrollKeys(splitCSV(*enrollKeys))
 	}
@@ -102,12 +102,12 @@ func splitCSV(s string) []string {
 	return out
 }
 
-func loadAccounts(path string) ([]edgegw.AccountConfig, error) {
+func loadAccounts(path string) ([]cchub.AccountConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var accounts []edgegw.AccountConfig
+	var accounts []cchub.AccountConfig
 	if err := json.Unmarshal(data, &accounts); err != nil {
 		return nil, err
 	}

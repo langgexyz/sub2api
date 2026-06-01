@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package edgee2e
 
 import (
 	"bytes"
@@ -13,6 +13,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 
 // mockUpstream emulates an upstream provider (Anthropic-shaped). Behavior is
@@ -42,7 +45,7 @@ func (m *mockUpstream) hits() []upstreamHit {
 
 func (m *mockUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
-	model, stream := parseModelStream(body)
+	model, stream := ccdirect.ParseModelStream(body)
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
 	m.mu.Lock()
@@ -86,9 +89,9 @@ func (m *mockUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 type testSystem struct {
 	center    *httptest.Server
 	edge      *httptest.Server
-	usage     *MemUsageSink
-	admission *MemAdmission
-	registry  *MemRegistry
+	usage     *cchub.MemUsageSink
+	admission *cchub.MemAdmission
+	registry  *cchub.MemRegistry
 }
 
 func (s *testSystem) close() {
@@ -96,21 +99,21 @@ func (s *testSystem) close() {
 	s.center.Close()
 }
 
-func newTestSystem(accounts []AccountConfig, maxPerKey int) *testSystem {
-	registry := NewMemRegistry(accounts)
-	admission := NewMemAdmission(maxPerKey)
-	usage := NewMemUsageSink()
-	minter := NewHMACMinter(registry, []byte("test-secret"), fixedClock())
-	coord := NewCoordinator(Config{
+func newTestSystem(accounts []cchub.AccountConfig, maxPerKey int) *testSystem {
+	registry := cchub.NewMemRegistry(accounts)
+	admission := cchub.NewMemAdmission(maxPerKey)
+	usage := cchub.NewMemUsageSink()
+	minter := cchub.NewHMACMinter(registry, []byte("test-secret"), fixedClock())
+	coord := cchub.NewCoordinator(cchub.Config{
 		Admission: admission,
 		Scheduler: registry,
-		Sticky:    NewMemSticky(),
+		Sticky:    cchub.NewMemSticky(),
 		Usage:     usage,
 		Minter:    minter,
 		Now:       fixedClock(),
 	})
-	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{
+	center := httptest.NewServer(cchub.NewServer(coord, registry, nil).Handler())
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{
 		EdgeID:    "edge-test",
 		CenterURL: center.URL,
 		Now:       time.Now,
@@ -140,7 +143,7 @@ func postPrompt(t *testing.T, edgeURL, apiKey, model string, stream bool) (int, 
 
 // waitSettle polls until at least n usage records are present (Settle is async
 // relative to the client response on a without-cancel context).
-func waitSettle(t *testing.T, sink *MemUsageSink, n int) []UsageRecord {
+func waitSettle(t *testing.T, sink *cchub.MemUsageSink, n int) []cchub.UsageRecord {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -158,7 +161,7 @@ func TestE2E_FullFlow_NonStream(t *testing.T) {
 	upstream := httptest.NewServer(up)
 	defer upstream.Close()
 
-	sys := newTestSystem([]AccountConfig{{
+	sys := newTestSystem([]cchub.AccountConfig{{
 		ID:              "acc-1",
 		HomeEdgeID:      "edge-test",
 		UpstreamBaseURL: upstream.URL,
@@ -206,7 +209,7 @@ func TestE2E_Streaming(t *testing.T) {
 	upstream := httptest.NewServer(up)
 	defer upstream.Close()
 
-	sys := newTestSystem([]AccountConfig{{
+	sys := newTestSystem([]cchub.AccountConfig{{
 		ID: "acc-1", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
 	}}, 0)
 	defer sys.close()
@@ -235,7 +238,7 @@ func TestE2E_LocalFailover(t *testing.T) {
 
 	// Two accounts, both for key-1/claude-x. Equal load => registry order =>
 	// acc-bad is primary, acc-good is failover.
-	sys := newTestSystem([]AccountConfig{
+	sys := newTestSystem([]cchub.AccountConfig{
 		{ID: "acc-bad", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "bad-token"},
 		{ID: "acc-good", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "good-token"},
 	}, 0)
@@ -259,7 +262,7 @@ func TestE2E_LocalFailover(t *testing.T) {
 }
 
 func TestE2E_NoAccount_Propagated(t *testing.T) {
-	sys := newTestSystem([]AccountConfig{{
+	sys := newTestSystem([]cchub.AccountConfig{{
 		ID: "acc-1", UpstreamBaseURL: "http://unused", UpstreamToken: "t",
 		GroupAPIKeys: []string{"other-key"}, // key-1 is not allowed
 	}}, 0)

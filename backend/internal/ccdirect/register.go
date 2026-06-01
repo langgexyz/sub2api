@@ -1,4 +1,4 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
@@ -17,8 +17,8 @@ import (
 // restart). Uses the relay's center HTTP client, so it inherits mTLS in prod.
 
 // Register announces this edge to the center once.
-func (e *EdgeRelay) Register(ctx context.Context, egressIP string, platforms []string) error {
-	body, _ := json.Marshal(RegisterRequest{EdgeID: e.EdgeID(), EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
+func (e *Relay) Register(ctx context.Context, egressIP string, platforms []string) error {
+	body, _ := json.Marshal(contract.RegisterRequest{EdgeID: e.EdgeID(), EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/register", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -34,8 +34,8 @@ func (e *EdgeRelay) Register(ctx context.Context, egressIP string, platforms []s
 
 // heartbeat pings the center once; returns false if the center does not know
 // this edge (caller should re-register).
-func (e *EdgeRelay) heartbeat(ctx context.Context) (known bool, err error) {
-	body, _ := json.Marshal(HeartbeatRequest{EdgeID: e.EdgeID()})
+func (e *Relay) heartbeat(ctx context.Context) (known bool, err error) {
+	body, _ := json.Marshal(contract.HeartbeatRequest{EdgeID: e.EdgeID()})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/heartbeat", bytes.NewReader(body))
 	if err != nil {
 		return false, err
@@ -65,7 +65,7 @@ func (e *EdgeRelay) heartbeat(ctx context.Context) (known bool, err error) {
 // RunHeartbeat registers once, then heartbeats every interval until ctx is done,
 // re-registering whenever the center reports this edge as unknown. Intended to
 // run in its own goroutine.
-func (e *EdgeRelay) RunHeartbeat(ctx context.Context, egressIP string, platforms []string, interval time.Duration) {
+func (e *Relay) RunHeartbeat(ctx context.Context, egressIP string, platforms []string, interval time.Duration) {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
@@ -81,6 +81,9 @@ func (e *EdgeRelay) RunHeartbeat(ctx context.Context, egressIP string, platforms
 			if err == nil && !known {
 				_ = e.Register(ctx, egressIP, platforms)
 			}
+			// Ship accumulated anomalies on the same cadence (best-effort; a
+			// failed flush drops the window without blocking the heartbeat).
+			e.flushReport(ctx)
 		}
 	}
 }

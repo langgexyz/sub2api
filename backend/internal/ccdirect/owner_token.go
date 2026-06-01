@@ -1,4 +1,4 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
@@ -53,7 +53,7 @@ func (t *ownerToken) clear() {
 }
 
 // authHeader sets Authorization: Bearer <access jwt> on a center request.
-func (e *EdgeRelay) authHeader(req *http.Request) {
+func (e *Relay) authHeader(req *http.Request) {
 	if e.owner == nil {
 		return
 	}
@@ -64,7 +64,7 @@ func (e *EdgeRelay) authHeader(req *http.Request) {
 
 // refreshOwner exchanges the refresh token for a fresh access JWT via the
 // center's sub2api auth endpoint. Returns true on success.
-func (e *EdgeRelay) refreshOwner(ctx context.Context) bool {
+func (e *Relay) refreshOwner(ctx context.Context) bool {
 	if e.owner == nil {
 		return false
 	}

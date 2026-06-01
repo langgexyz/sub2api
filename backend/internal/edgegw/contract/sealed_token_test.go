@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package contract
 
 import (
 	"testing"

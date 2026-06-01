@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package ccdirect
 
 import (
 	"crypto/ed25519"
@@ -12,7 +12,7 @@ import (
 func livenessClock(t *time.Time) Clock { return func() time.Time { return *t } }
 
 func TestLivenessGate_DisabledWhenNoPubKey(t *testing.T) {
-	r := &EdgeRelay{now: time.Now} // cchubPubKey nil
+	r := &Relay{now: time.Now} // cchubPubKey nil
 	if !r.livenessHealthy() {
 		t.Fatal("with no pubkey, liveness enforcement must be disabled (healthy)")
 	}
@@ -21,7 +21,7 @@ func TestLivenessGate_DisabledWhenNoPubKey(t *testing.T) {
 func TestLivenessGate_HealthyWhileTokenValid(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(nil)
 	now := time.Unix(1_700_000_000, 0)
-	r := &EdgeRelay{now: livenessClock(&now), cchubPubKey: pub}
+	r := &Relay{now: livenessClock(&now), cchubPubKey: pub}
 
 	// No token yet -> not healthy (must be vouched before serving).
 	if r.livenessHealthy() {
