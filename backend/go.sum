@@ -207,6 +207,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/langgexyz/ccgw v0.0.0-20260601063625-f389e76140b2 h1:CCBYjYdiaKhS/dQr7sFsb9AN5uO64HZMy1ebG9IW3gk=
 github.com/langgexyz/ccgw v0.0.0-20260601063625-f389e76140b2/go.mod h1:NI7kxNq8LJEr9Avv0UNqSgMBYK9KlaVvk/cfLwVkg5Y=
+github.com/langgexyz/ccgw v0.0.0-20260601071623-29c054bca5cd h1:rhAlEny+giZb/i8JAaosH2+35Z3XRWSSsp6z2t/j7jg=
+github.com/langgexyz/ccgw v0.0.0-20260601071623-29c054bca5cd/go.mod h1:NI7kxNq8LJEr9Avv0UNqSgMBYK9KlaVvk/cfLwVkg5Y=
 github.com/leodido/go-urn v1.2.4 h1:XlAE/cm/ms7TE/VMVoduSpNBoyc2dOxHs5MZSwAN63Q=
 github.com/leodido/go-urn v1.2.4/go.mod h1:7ZrI8mTSeBSHl/UaRyKQW1qZeMgak41ANeCNaVckg+4=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=

@@ -46,7 +46,7 @@ func RegisterAuthRoutes(
 		}), h.Auth.RefreshToken)
 		// 登出接口（公开，允许未认证用户调用以撤销Refresh Token）
 		auth.POST("/logout", h.Auth.Logout)
-		// CLI 登录（loopback + PKCE + 设备密钥）——edge / ccdirect 浏览器登录回流。
+		// CLI 登录（loopback + PKCE + 设备密钥）——ccdirect 浏览器登录回流。
 		// token 公开（调用方是未认证 CLI，身份来自 grant），限流防滥用；
 		// authorize 需登录（见下）。
 		auth.POST("/cli/token", rateLimiter.LimitWithOptions("auth-cli-token", 120, time.Minute, middleware.RateLimitOptions{
@@ -229,7 +229,7 @@ func RegisterAuthRoutes(
 	authenticated.Use(servermiddleware.BackendModeUserGuard(settingService))
 	{
 		authenticated.GET("/auth/me", h.Auth.GetCurrentUser)
-		// CLI 授权（需登录）——浏览器已登录用户为 edge / ccdirect 颁发一次性授权码。
+		// CLI 授权（需登录）——浏览器已登录用户为 ccdirect 颁发一次性授权码。
 		authenticated.POST("/auth/cli/authorize", h.Auth.CLIAuthorize)
 		// 撤销所有会话（需要认证）
 		authenticated.POST("/auth/revoke-all-sessions", h.Auth.RevokeAllSessions)

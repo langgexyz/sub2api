@@ -20,16 +20,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Loopback + PKCE + device-key CLI login (the edge / ccdirect).
+// Loopback + PKCE + device-key CLI login (ccdirect).
 //
 // Flow:
-//  1. edge starts a loopback server, generates a PKCE verifier/challenge + state
+//  1. ccdirect starts a loopback server, generates a PKCE verifier/challenge + state
 //     + device Ed25519 key, opens the browser to <web>/cli/authorize?...
 //  2. browser (already logged in) POSTs /api/v1/auth/cli/authorize (JWT) -> the
 //     center mints a single-use authorization_code bound to the user + PKCE
 //     challenge + device pubkey, and returns redirect_to (loopback URL + code).
-//  3. browser redirects to the loopback URL; the edge receives the code.
-//  4. edge POSTs /api/v1/auth/cli/token (public) with code + code_verifier ->
+//  3. browser redirects to the loopback URL; the ccdirect receives the code.
+//  4. ccdirect POSTs /api/v1/auth/cli/token (public) with code + code_verifier ->
 //     the center verifies PKCE, mints a token pair, and binds the refresh token
 //     to the device pubkey.
 //
@@ -39,7 +39,7 @@ import (
 // timestamp (contract: +/-120s).
 const deviceSignatureSkew = 120 * time.Second
 
-// Device-signature headers carried by the edge on bound calls.
+// Device-signature headers carried by the ccdirect on bound calls.
 const (
 	headerCcdirectTimestamp = "X-CCDirect-Timestamp"
 	headerCcdirectSignature = "X-CCDirect-Signature"
