@@ -96,7 +96,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req contract.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.EdgeID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CCDirectID == "" {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
 	}
@@ -109,7 +109,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		// Auto-detect from the connection so the edge need not configure it.
 		egressIP = clientIPFromRemoteAddr(r.RemoteAddr)
 	}
-	s.edges.Register(req.EdgeID, egressIP, req.Platforms)
+	s.edges.Register(req.CCDirectID, egressIP, req.Platforms)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -123,11 +123,11 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req contract.HeartbeatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.EdgeID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CCDirectID == "" {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
 	}
-	if !s.edges.Heartbeat(req.EdgeID) {
+	if !s.edges.Heartbeat(req.CCDirectID) {
 		// Unknown edge: ask it to re-register.
 		writeJSONError(w, http.StatusNotFound, "unknown_edge", "edge not registered")
 		return
@@ -137,7 +137,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEdges(w http.ResponseWriter, _ *http.Request) {
 	if s.edges == nil {
-		writeJSON(w, http.StatusOK, []edgereg.EdgeInfo{})
+		writeJSON(w, http.StatusOK, []edgereg.CCDirectInfo{})
 		return
 	}
 	writeJSON(w, http.StatusOK, s.edges.Live())

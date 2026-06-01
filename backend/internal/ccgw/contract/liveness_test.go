@@ -63,7 +63,7 @@ func TestLiveness_TamperedExpRejected(t *testing.T) {
 
 func TestLiveness_MalformedSig(t *testing.T) {
 	pub, _ := mustKey(t)
-	tok := LivenessToken{EdgeID: "edge-u1", ExpiresAt: time.Now().Add(time.Minute).Unix(), Signature: "!!!not-base64!!!"}
+	tok := LivenessToken{CCDirectID: "edge-u1", ExpiresAt: time.Now().Add(time.Minute).Unix(), Signature: "!!!not-base64!!!"}
 	if err := VerifyLiveness(pub, tok, "edge-u1", time.Now); err != ErrLivenessMalformed {
 		t.Fatalf("want malformed, got %v", err)
 	}

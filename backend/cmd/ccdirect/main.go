@@ -60,7 +60,7 @@ var cchubLivenessPubKey = ""
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("edge %s\n", Version)
+		fmt.Printf("ccdirect %s\n", Version)
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "upgrade" {
@@ -80,7 +80,7 @@ func main() {
 // persist credentials.
 type edgeApp struct {
 	relay       *ccdirect.Relay
-	centerEdge  string // center edge control-plane base, e.g. http://host:8080/edge
+	cchubBase   string // center edge control-plane base, e.g. http://host:8080/edge
 	authBase    string // sub2api API root, e.g. http://host:8080
 	httpClient  *http.Client
 	sessionPath string
@@ -122,7 +122,7 @@ func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 	dkPath, _ := deviceKeyPath(sessionPath)
 	dk, dkErr := loadOrCreateDeviceKey(dkPath)
 	if dkErr != nil {
-		log.Printf("edge: warning: device key unavailable (%v); refresh will be unsigned", dkErr)
+		log.Printf("ccdirect: warning: device key unavailable (%v); refresh will be unsigned", dkErr)
 	}
 
 	cchubPubKey, err := contract.DecodeLivenessPubKey(cchubLivenessPubKey)
@@ -130,24 +130,24 @@ func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 		return nil, fmt.Errorf("invalid embedded cchub liveness pubkey: %w", err)
 	}
 	if cchubPubKey == nil {
-		log.Printf("edge: WARNING: no cchub liveness key embedded — liveness enforcement disabled (dev build)")
+		log.Printf("ccdirect: WARNING: no cchub liveness key embedded — liveness enforcement disabled (dev build)")
 	}
 
 	relay := ccdirect.NewRelay(ccdirect.Config{
 		InternalKey:       cfg.internalKey,
 		OwnerAccessToken:  sess.OwnerAccess,
 		OwnerRefreshToken: sess.OwnerRefresh,
-		CenterURL:         cfg.center,
-		CenterHTTP:        centerClient,
+		CCHubURL:          cfg.center,
+		CCHubHTTP:         centerClient,
 		Upstream:          upstreamClient,
 		MaxFailover:       cfg.maxFailover,
 		DeviceKey:         dk.priv,
-		CchubPubKey:       cchubPubKey,
+		CCHubPubKey:       cchubPubKey,
 	})
 
 	app := &edgeApp{
 		relay:       relay,
-		centerEdge:  cfg.center,
+		cchubBase:   cfg.center,
 		authBase:    authBaseFromCenter(cfg.center),
 		httpClient:  centerClient,
 		sessionPath: sessionPath,
@@ -159,7 +159,7 @@ func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 	// session. Empty pair clears the file (logout).
 	relay.SetOnRefresh(func(access, refresh string) {
 		if serr := enroll.SaveSession(app.sessionPath, enroll.Session{OwnerAccess: access, OwnerRefresh: refresh}); serr != nil {
-			log.Printf("edge: warning: could not save session: %v", serr)
+			log.Printf("ccdirect: warning: could not save session: %v", serr)
 		}
 	})
 	return app, nil
@@ -173,13 +173,13 @@ func (app *edgeApp) startServing(ctx context.Context) *http.Server {
 	// using the saved/refreshed access token) before serving.
 	if app.relay.LoggedIn() {
 		if err := app.activate(ctx); err != nil {
-			log.Printf("edge: saved session not usable (%v); run /login", err)
+			log.Printf("ccdirect: saved session not usable (%v); run /login", err)
 		}
 	}
 	srv := &http.Server{Addr: app.addr, Handler: app.relay.Handler(), ReadHeaderTimeout: 15 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("edge: %v", err)
+			log.Fatalf("ccdirect: %v", err)
 		}
 	}()
 	go app.relay.RunHeartbeat(ctx, app.cfg.egressIP, splitCSV(app.cfg.platforms), app.cfg.heartbeat)
@@ -192,7 +192,7 @@ func shutdownServer(srv *http.Server) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("edge: shutdown error: %v", err)
+		log.Printf("ccdirect: shutdown error: %v", err)
 	}
 }
 
@@ -209,14 +209,14 @@ func runServe(args []string) {
 
 	app, err := newEdgeApp(cfg)
 	if err != nil {
-		log.Fatalf("edge: %v", err)
+		log.Fatalf("ccdirect: %v", err)
 	}
 
 	egressLabel := cfg.upstreamProxy
 	if egressLabel == "" {
 		egressLabel = "direct"
 	}
-	log.Printf("edge %s: listening on %s, center=%s, egress=%s", Version, cfg.addr, cfg.center, egressLabel)
+	log.Printf("ccdirect %s: listening on %s, center=%s, egress=%s", Version, cfg.addr, cfg.center, egressLabel)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -239,7 +239,7 @@ func runServe(args []string) {
 	case <-quit:
 	case <-ctx.Done():
 	}
-	log.Printf("edge: shutting down")
+	log.Printf("ccdirect: shutting down")
 	cancel()
 	shutdownServer(srv)
 }
@@ -249,19 +249,19 @@ func runServe(args []string) {
 // WITHOUT touching the owner token pair (so the saved refresh token survives).
 func (app *edgeApp) activate(ctx context.Context) error {
 	access := app.relay.OwnerAccess()
-	conf, err := fetchConfig(ctx, app.httpClient, app.centerEdge, access)
+	conf, err := fetchConfig(ctx, app.httpClient, app.cchubBase, access)
 	if err != nil {
 		// Access may have expired while the edge was off; refresh via the relay
 		// (which persists the rotated pair) and retry once.
 		if app.relay.RefreshOwner(ctx) {
 			access = app.relay.OwnerAccess()
-			conf, err = fetchConfig(ctx, app.httpClient, app.centerEdge, access)
+			conf, err = fetchConfig(ctx, app.httpClient, app.cchubBase, access)
 		}
 		if err != nil {
 			return err
 		}
 	}
-	app.relay.SetSeal(conf.EdgeID, []byte(conf.TokenSecret))
+	app.relay.SetSeal(conf.CCDirectID, []byte(conf.TokenSecret))
 	return nil
 }
 
@@ -269,15 +269,15 @@ func (app *edgeApp) activate(ctx context.Context) error {
 // into the relay. authBase is the sub2api API root; it is also the web origin
 // that serves the /cli/authorize SPA route.
 func (app *edgeApp) doLogin(ctx context.Context) error {
-	res, err := loopbackLogin(ctx, app.httpClient, app.authBase, app.authBase, app.centerEdge, app.deviceKey)
+	res, err := loopbackLogin(ctx, app.httpClient, app.authBase, app.authBase, app.cchubBase, app.deviceKey)
 	if err != nil {
 		return err
 	}
-	app.relay.Login(res.access, res.refresh, res.edgeID, res.secret)
+	app.relay.Login(res.access, res.refresh, res.ccdirectID, res.secret)
 	if claims, ok := parseJWTUnverified(res.access); ok && claims.Email != "" {
-		fmt.Printf("logged in as %s (edge %s)\n", claims.Email, res.edgeID)
+		fmt.Printf("logged in as %s (edge %s)\n", claims.Email, res.ccdirectID)
 	} else {
-		fmt.Printf("logged in (edge %s)\n", res.edgeID)
+		fmt.Printf("logged in (edge %s)\n", res.ccdirectID)
 	}
 	return nil
 }
@@ -286,7 +286,7 @@ func (app *edgeApp) doLogin(ctx context.Context) error {
 func (app *edgeApp) repl(ctx context.Context, cancel context.CancelFunc) {
 	sc := bufio.NewScanner(os.Stdin)
 	fmt.Println("Type /login, /logout, /status, or /quit.")
-	prompt := func() { fmt.Print("edge> ") }
+	prompt := func() { fmt.Print("ccdirect> ") }
 	prompt()
 	for sc.Scan() {
 		switch strings.TrimSpace(sc.Text()) {

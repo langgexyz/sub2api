@@ -19,9 +19,9 @@ import (
 // in contract.go) — both ccdirect and cchub use them.
 
 // SetEnrollConfig sets the parameters the center issues to edges at enroll time.
-func (s *Server) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFailover int, platforms []string) {
+func (s *Server) SetEnrollConfig(cchubURL string, heartbeatSeconds, maxFailover int, platforms []string) {
 	s.mu.Lock()
-	s.issuedCenterURL = centerURL
+	s.issuedCenterURL = cchubURL
 	s.issuedHeartbeat = heartbeatSeconds
 	s.issuedMaxFailover = maxFailover
 	s.issuedPlatforms = append([]string(nil), platforms...)
@@ -43,15 +43,15 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	edgeID := req.EdgeID
-	if edgeID == "" {
-		edgeID = "edge-" + strconv.FormatInt(atomic.AddInt64(&s.enrollSeq, 1), 10)
+	ccdirectID := req.CCDirectID
+	if ccdirectID == "" {
+		ccdirectID = "edge-" + strconv.FormatInt(atomic.AddInt64(&s.enrollSeq, 1), 10)
 	}
 
 	s.mu.Lock()
 	resp := contract.EnrollResponse{
-		EdgeID:           edgeID,
-		CenterURL:        s.issuedCenterURL,
+		CCDirectID:       ccdirectID,
+		CCHubURL:         s.issuedCenterURL,
 		HeartbeatSeconds: s.issuedHeartbeat,
 		MaxFailover:      s.issuedMaxFailover,
 		Platforms:        append([]string(nil), s.issuedPlatforms...),

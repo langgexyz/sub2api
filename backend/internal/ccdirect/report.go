@@ -80,23 +80,23 @@ func (e *Relay) reportPanic(rec any) {
 // flushReport ships accumulated anomalies to cchub's /edge/v1/report and clears
 // the buffer. No-op when nothing is buffered or the edge is logged out (no edge
 // id yet). Best-effort: a failed send drops this window rather than blocking the
-// heartbeat loop. centerURL already includes the /edge prefix (see Register).
+// heartbeat loop. cchubURL already includes the /edge prefix (see Register).
 func (e *Relay) flushReport(ctx context.Context) {
 	items := e.reporter.drain()
 	if len(items) == 0 {
 		return
 	}
-	edgeID := e.EdgeID()
-	if edgeID == "" {
+	ccdirectID := e.CCDirectID()
+	if ccdirectID == "" {
 		return
 	}
-	body, _ := json.Marshal(contract.ErrorReport{EdgeID: edgeID, Items: items})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/report", bytes.NewReader(body))
+	body, _ := json.Marshal(contract.ErrorReport{CCDirectID: ccdirectID, Items: items})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.cchubURL+"/v1/report", bytes.NewReader(body))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.centerHTTP.Do(req)
+	resp, err := e.cchubHTTP.Do(req)
 	if err != nil {
 		return
 	}

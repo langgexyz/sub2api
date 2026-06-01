@@ -15,8 +15,8 @@ import (
 // defaultTTL is the liveness window used when New is given a non-positive ttl.
 const defaultTTL = 30 * time.Second
 
-// EdgeInfo describes a single edge node tracked by the center.
-type EdgeInfo struct {
+// CCDirectInfo describes a single edge node tracked by the center.
+type CCDirectInfo struct {
 	ID           string    `json:"id"`
 	EgressIP     string    `json:"egress_ip"`
 	Platforms    []string  `json:"platforms"`
@@ -34,7 +34,7 @@ type Registry struct {
 	now Clock
 
 	mu    sync.RWMutex
-	edges map[string]EdgeInfo
+	edges map[string]CCDirectInfo
 }
 
 // New builds a registry. ttl is the liveness window: an edge is live when
@@ -50,7 +50,7 @@ func New(ttl time.Duration, now Clock) *Registry {
 	return &Registry{
 		ttl:   ttl,
 		now:   now,
-		edges: make(map[string]EdgeInfo),
+		edges: make(map[string]CCDirectInfo),
 	}
 }
 
@@ -102,24 +102,24 @@ func (r *Registry) Heartbeat(id string) bool {
 }
 
 // isLive reports whether the edge was last seen within the TTL relative to t.
-func (r *Registry) isLive(e EdgeInfo, t time.Time) bool {
+func (r *Registry) isLive(e CCDirectInfo, t time.Time) bool {
 	return t.Sub(e.LastSeen) <= r.ttl
 }
 
 // cloneEdge returns a deep copy of e so callers cannot mutate stored state.
-func cloneEdge(e EdgeInfo) EdgeInfo {
+func cloneEdge(e CCDirectInfo) CCDirectInfo {
 	e.Platforms = copyPlatforms(e.Platforms)
 	return e
 }
 
 // Live returns all currently-live edges (now-LastSeen <= ttl), sorted by ID
 // ascending. The returned values are copies.
-func (r *Registry) Live() []EdgeInfo {
+func (r *Registry) Live() []CCDirectInfo {
 	t := r.now()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	out := make([]EdgeInfo, 0, len(r.edges))
+	out := make([]CCDirectInfo, 0, len(r.edges))
 	for _, e := range r.edges {
 		if r.isLive(e, t) {
 			out = append(out, cloneEdge(e))
@@ -145,13 +145,13 @@ func (r *Registry) IsLive(id string) bool {
 }
 
 // Get returns an edge by id (copy) and whether it exists.
-func (r *Registry) Get(id string) (EdgeInfo, bool) {
+func (r *Registry) Get(id string) (CCDirectInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	e, ok := r.edges[id]
 	if !ok {
-		return EdgeInfo{}, false
+		return CCDirectInfo{}, false
 	}
 	return cloneEdge(e), true
 }

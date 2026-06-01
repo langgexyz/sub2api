@@ -31,7 +31,7 @@ type edgeFlags struct {
 func parseFlags(args []string) edgeFlags {
 	fs := flag.NewFlagSet("edge", flag.ExitOnError)
 	addr := fs.String("addr", env("CCDIRECT_ADDR", ":8088"), "listen address for client traffic [CCDIRECT_ADDR]")
-	center := fs.String("center", env("CCDIRECT_CCHUB_URL", "http://localhost:8080/edge"), "center edge base URL, ending in /edge [CCDIRECT_CCHUB_URL]")
+	center := fs.String("cchub", env("CCDIRECT_CCHUB_URL", "http://localhost:8080/edge"), "center edge base URL, ending in /edge [CCDIRECT_CCHUB_URL]")
 	platforms := fs.String("platforms", env("CCDIRECT_PLATFORMS", ""), "comma-separated platforms to advertise [CCDIRECT_PLATFORMS]")
 	egressIP := fs.String("egress-ip", env("CCDIRECT_EGRESS_IP", ""), "stable egress IP reported to center (auto-detected if empty) [CCDIRECT_EGRESS_IP]")
 	maxFailover := fs.Int("max-failover", envInt("CCDIRECT_MAX_FAILOVER", 3), "max candidates to try locally [CCDIRECT_MAX_FAILOVER]")
@@ -48,7 +48,7 @@ func parseFlags(args []string) edgeFlags {
 	// (local dev / a local cchub) is exempt; CCDIRECT_INSECURE=1 is an explicit
 	// escape hatch for non-loopback plaintext (testing only).
 	if err := requireSecureCenter(*center, os.Getenv("CCDIRECT_INSECURE") == "1"); err != nil {
-		log.Fatalf("edge: %v", err)
+		log.Fatalf("ccdirect: %v", err)
 	}
 
 	return edgeFlags{
@@ -69,26 +69,26 @@ func parseFlags(args []string) edgeFlags {
 // requireSecureCenter rejects a non-HTTPS center URL unless it targets loopback
 // (127.0.0.1/::1/localhost) or insecure is explicitly allowed. Returns an error
 // describing why; nil means the center URL is acceptable.
-func requireSecureCenter(centerURL string, allowInsecure bool) error {
-	u, err := url.Parse(centerURL)
+func requireSecureCenter(cchubURL string, allowInsecure bool) error {
+	u, err := url.Parse(cchubURL)
 	if err != nil {
-		return fmt.Errorf("invalid center URL %q: %w", centerURL, err)
+		return fmt.Errorf("invalid center URL %q: %w", cchubURL, err)
 	}
 	if u.Scheme == "https" {
 		return nil
 	}
 	if u.Scheme != "http" {
-		return fmt.Errorf("center URL must be http(s): got scheme %q in %q", u.Scheme, centerURL)
+		return fmt.Errorf("center URL must be http(s): got scheme %q in %q", u.Scheme, cchubURL)
 	}
 	// scheme == http from here.
 	if isLoopbackHost(u.Hostname()) {
 		return nil // local dev / local cchub
 	}
 	if allowInsecure {
-		log.Printf("edge: WARNING: using plaintext HTTP to a non-loopback center (%s) — CCDIRECT_INSECURE=1 set; do NOT use in production", centerURL)
+		log.Printf("ccdirect: WARNING: using plaintext HTTP to a non-loopback center (%s) — CCDIRECT_INSECURE=1 set; do NOT use in production", cchubURL)
 		return nil
 	}
-	return fmt.Errorf("center URL must use HTTPS for a non-loopback host: %q (set CCDIRECT_INSECURE=1 to override for testing)", centerURL)
+	return fmt.Errorf("center URL must use HTTPS for a non-loopback host: %q (set CCDIRECT_INSECURE=1 to override for testing)", cchubURL)
 }
 
 // isLoopbackHost reports whether host is a loopback address or "localhost".

@@ -18,7 +18,7 @@ type LeaseRequest struct {
 	Model       string `json:"model"`
 	SessionHash string `json:"session_hash"`
 	RequestID   string `json:"request_id"`
-	EdgeID      string `json:"edge_id"`
+	CCDirectID  string `json:"ccdirect_id"`
 	Stream      bool   `json:"stream"`
 }
 
@@ -40,7 +40,7 @@ type AuthScheme struct {
 // round-trip to cchub.
 type Candidate struct {
 	AccountID       string            `json:"account_id"`
-	HomeEdgeID      string            `json:"home_edge_id"`
+	HomeCCDirectID  string            `json:"home_ccdirect_id"`
 	Platform        string            `json:"platform"` // selects the edge-side Provider (anthropic/openai/gemini/antigravity)
 	UpstreamBaseURL string            `json:"upstream_base_url"`
 	LeaseToken      string            `json:"lease_token"` // short-lived; edge uses then discards

@@ -138,7 +138,7 @@ func TestStatusSnapshotLoggedOut(t *testing.T) {
 	if s.LoggedIn {
 		t.Fatal("fresh app should be logged out")
 	}
-	if s.Center == "" || s.Listen == "" || s.Version == "" {
+	if s.CCHub == "" || s.Listen == "" || s.Version == "" {
 		t.Fatalf("status missing static fields: %+v", s)
 	}
 }
@@ -153,10 +153,10 @@ func TestControlHandlerDispatch(t *testing.T) {
 
 	// login installs tokens (seal secret hex-encoded on the wire)
 	resp := app.controlHandler(controlRequest{
-		Cmd: cmdLogin, Access: "acc", Refresh: "ref", EdgeID: "edge-7",
+		Cmd: cmdLogin, Access: "acc", Refresh: "ref", CCDirectID: "edge-7",
 		Secret: hex.EncodeToString([]byte{0x00, 0x01, 0xff}),
 	})
-	if !resp.OK || resp.Status == nil || !resp.Status.LoggedIn || resp.Status.EdgeID != "edge-7" {
+	if !resp.OK || resp.Status == nil || !resp.Status.LoggedIn || resp.Status.CCDirectID != "edge-7" {
 		t.Fatalf("login: %+v (status %+v)", resp, resp.Status)
 	}
 	if !app.relay.LoggedIn() {

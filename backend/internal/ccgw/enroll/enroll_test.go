@@ -11,9 +11,9 @@ import (
 )
 
 // TestTokenRoundTrip verifies that EncodeToken then DecodeToken preserves both
-// the Center and Key fields.
+// the CCHub and Key fields.
 func TestTokenRoundTrip(t *testing.T) {
-	in := Token{Center: "https://center.example.com", Key: "secret-enroll-key"}
+	in := Token{CCHub: "https://center.example.com", Key: "secret-enroll-key"}
 	s := EncodeToken(in)
 	if s == "" {
 		t.Fatal("EncodeToken returned an empty string")
@@ -22,8 +22,8 @@ func TestTokenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeToken returned unexpected error: %v", err)
 	}
-	if out.Center != in.Center {
-		t.Errorf("Center mismatch: got %q want %q", out.Center, in.Center)
+	if out.CCHub != in.CCHub {
+		t.Errorf("CCHub mismatch: got %q want %q", out.CCHub, in.CCHub)
 	}
 	if out.Key != in.Key {
 		t.Errorf("Key mismatch: got %q want %q", out.Key, in.Key)
@@ -31,7 +31,7 @@ func TestTokenRoundTrip(t *testing.T) {
 }
 
 // TestDecodeTokenRejects checks that DecodeToken rejects malformed input:
-// non-base64 garbage, valid base64 of non-JSON, and JSON missing Center or Key.
+// non-base64 garbage, valid base64 of non-JSON, and JSON missing CCHub or Key.
 func TestDecodeTokenRejects(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -69,8 +69,8 @@ func TestDecodeTokenRejects(t *testing.T) {
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "edge.json")
 	in := Enrolled{
-		CenterURL:        "https://center.example.com",
-		EdgeID:           "edge-42",
+		CCHubURL:         "https://center.example.com",
+		CCDirectID:       "edge-42",
 		EnrollKey:        "secret-enroll-key",
 		HeartbeatSeconds: 30,
 		MaxFailover:      3,

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# edgegw-demo.sh — boot the distributed edge end to end and send a request
+# ccgw-demo.sh — boot the distributed edge end to end and send a request
 # through it: client -> edge -> center(lease) -> edge -> mock upstream -> stream
 # -> center(settle). See docs/tech/distributed-edge.md.
 #
-# Usage: backend/scripts/edgegw-demo.sh
+# Usage: backend/scripts/ccgw-demo.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # backend/
 
-OUT=bin/edgegw-demo
+OUT=bin/ccgw-demo
 mkdir -p "$OUT"
 
 CENTER_ADDR=127.0.0.1:9000
@@ -16,8 +16,8 @@ CCDIRECT_ADDR=127.0.0.1:8088
 MOCK_ADDR=127.0.0.1:9100
 
 echo "info: building binaries"
-go build -o "$OUT/center" ./cmd/cchub
-go build -o "$OUT/edge" ./cmd/ccdirect
+go build -o "$OUT/cchub" ./cmd/cchub
+go build -o "$OUT/ccdirect" ./cmd/ccdirect
 go build -o "$OUT/mockupstream" ./cmd/mockupstream
 
 # Account registry: one account whose upstream points at the mock, with a model
@@ -27,7 +27,7 @@ cat > "$OUT/accounts.json" <<JSON
   {
     "id": "acc-1",
     "platform": "anthropic",
-    "home_edge_id": "edge-local",
+    "home_ccdirect_id": "edge-local",
     "upstream_base_url": "http://${MOCK_ADDR}",
     "upstream_token": "real-upstream-token-1",
     "model_mapping": { "claude-x": "upstream-y" }
@@ -43,8 +43,8 @@ cleanup() {
 trap cleanup EXIT
 
 "$OUT/mockupstream" -addr "$MOCK_ADDR" & pids+=($!)
-"$OUT/center" -addr "$CENTER_ADDR" -accounts "$OUT/accounts.json" -max-per-key 4 & pids+=($!)
-"$OUT/edge" -addr "$CCDIRECT_ADDR" -center "http://${CENTER_ADDR}" -edge-id edge-local & pids+=($!)
+"$OUT/cchub" -addr "$CENTER_ADDR" -accounts "$OUT/accounts.json" -max-per-key 4 & pids+=($!)
+"$OUT/ccdirect" -addr "$CCDIRECT_ADDR" -cchub "http://${CENTER_ADDR}" -edge-id edge-local & pids+=($!)
 
 # Wait for health.
 for url in "http://${CENTER_ADDR}/healthz" "http://${CCDIRECT_ADDR}/healthz"; do

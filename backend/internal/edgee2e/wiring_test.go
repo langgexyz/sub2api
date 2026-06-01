@@ -31,7 +31,7 @@ func TestEgressViaEdge(t *testing.T) {
 	}))
 	defer target.Close()
 
-	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{EdgeID: "edge-1", CenterURL: "http://unused", InternalKey: "secret"}).Handler())
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{CCDirectID: "edge-1", CCHubURL: "http://unused", InternalKey: "secret"}).Handler())
 	defer edge.Close()
 
 	// Wrong/missing internal key is rejected (SSRF gate).
@@ -81,21 +81,21 @@ func TestCenterRegisterHeartbeatEnroll(t *testing.T) {
 	}
 
 	// Wrong enroll key is rejected.
-	if code := post("/v1/register", contract.RegisterRequest{EdgeID: "e1", EnrollKey: "bad", EgressIP: "1.2.3.4"}); code != http.StatusUnauthorized {
+	if code := post("/v1/register", contract.RegisterRequest{CCDirectID: "e1", EnrollKey: "bad", EgressIP: "1.2.3.4"}); code != http.StatusUnauthorized {
 		t.Fatalf("bad enroll key: want 401, got %d", code)
 	}
 	// Correct enroll key registers.
-	if code := post("/v1/register", contract.RegisterRequest{EdgeID: "e1", EnrollKey: "good-key", EgressIP: "1.2.3.4", Platforms: []string{"openai"}}); code != http.StatusOK {
+	if code := post("/v1/register", contract.RegisterRequest{CCDirectID: "e1", EnrollKey: "good-key", EgressIP: "1.2.3.4", Platforms: []string{"openai"}}); code != http.StatusOK {
 		t.Fatalf("good enroll key: want 200, got %d", code)
 	}
 	if !edges.IsLive("e1") {
 		t.Fatalf("e1 should be live after register")
 	}
 	// Heartbeat known/unknown.
-	if code := post("/v1/heartbeat", contract.HeartbeatRequest{EdgeID: "e1"}); code != http.StatusOK {
+	if code := post("/v1/heartbeat", contract.HeartbeatRequest{CCDirectID: "e1"}); code != http.StatusOK {
 		t.Fatalf("heartbeat known: want 200, got %d", code)
 	}
-	if code := post("/v1/heartbeat", contract.HeartbeatRequest{EdgeID: "ghost"}); code != http.StatusNotFound {
+	if code := post("/v1/heartbeat", contract.HeartbeatRequest{CCDirectID: "ghost"}); code != http.StatusNotFound {
 		t.Fatalf("heartbeat unknown: want 404, got %d", code)
 	}
 	// /v1/edges lists the live edge.
@@ -104,7 +104,7 @@ func TestCenterRegisterHeartbeatEnroll(t *testing.T) {
 		t.Fatalf("get edges: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	var live []edgereg.EdgeInfo
+	var live []edgereg.CCDirectInfo
 	_ = json.NewDecoder(resp.Body).Decode(&live)
 	if len(live) != 1 || live[0].ID != "e1" {
 		t.Fatalf("expected [e1] live, got %+v", live)
@@ -127,7 +127,7 @@ func TestCoordinatorQuotaReserveReconcile(t *testing.T) {
 		Now:           fixedClock(),
 	})
 
-	lease, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1", EdgeID: "e"})
+	lease, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1", CCDirectID: "e"})
 	if err != nil {
 		t.Fatalf("lease: %v", err)
 	}
@@ -170,10 +170,10 @@ func TestCoordinatorQuotaRefundOnFailedLease(t *testing.T) {
 // ranked first.
 func TestSchedulerEdgeAffinity(t *testing.T) {
 	registry := cchub.NewMemRegistry([]cchub.AccountConfig{
-		{ID: "a-edgeA", Platform: "openai", HomeEdgeID: "edgeA", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
-		{ID: "a-edgeB", Platform: "openai", HomeEdgeID: "edgeB", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
+		{ID: "a-edgeA", Platform: "openai", HomeCCDirectID: "edgeA", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
+		{ID: "a-edgeB", Platform: "openai", HomeCCDirectID: "edgeB", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
 	})
-	cands, err := registry.Select(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", EdgeID: "edgeB"})
+	cands, err := registry.Select(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", CCDirectID: "edgeB"})
 	if err != nil {
 		t.Fatalf("select: %v", err)
 	}

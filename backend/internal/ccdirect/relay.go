@@ -27,8 +27,8 @@ type Relay struct {
 	enrollKey   string
 	internalKey string
 	owner       *ownerToken // always non-nil; empty tokens => logged out
-	centerURL   string
-	centerHTTP  *http.Client
+	cchubURL    string
+	cchubHTTP   *http.Client
 	upstream    *http.Client
 	maxFailover int
 	maxBodyByte int64
@@ -43,12 +43,12 @@ type Relay struct {
 	// SetOnRefresh before serving.
 	onRefresh func(access, refresh string)
 
-	// secMu guards edgeID + tokenSecret, both set at login time (fetched from the
+	// secMu guards ccdirectID + tokenSecret, both set at login time (fetched from the
 	// center's /edge/v1/config) and changed across login/logout, concurrently
 	// with the relay/heartbeat goroutines reading them. The seal token is bound
-	// to edgeID, so they must move together.
+	// to ccdirectID, so they must move together.
 	secMu       sync.RWMutex
-	edgeID      string
+	ccdirectID  string
 	tokenSecret []byte // shared secret to OPEN sealed lease tokens; empty = tokens are raw
 
 	// Liveness: cchubPubKey verifies cchub-signed heartbeat liveness tokens. When
@@ -66,8 +66,8 @@ type Relay struct {
 
 // Config configures an Relay.
 type Config struct {
-	EdgeID    string
-	EnrollKey string // presented to the center at registration
+	CCDirectID string
+	EnrollKey  string // presented to the center at registration
 	// InternalKey gates /internal/egress (center-only control egress). When
 	// empty, /internal/egress is disabled (denied) -- it must be explicitly
 	// enabled with a shared secret to avoid an SSRF/credential-relay hole.
@@ -80,8 +80,8 @@ type Config struct {
 	// ownership) and refreshes it via /api/v1/auth/refresh when it expires.
 	OwnerAccessToken  string
 	OwnerRefreshToken string
-	CenterURL         string // base URL of the center, e.g. http://center:9000
-	CenterHTTP        *http.Client
+	CCHubURL          string // base URL of the center, e.g. http://center:9000
+	CCHubHTTP         *http.Client
 	Upstream          *http.Client
 	MaxFailover       int
 	MaxBodyByte       int64 // max client request body; 0 => 32 MiB default
@@ -91,15 +91,15 @@ type Config struct {
 	// bound refresh requests with. Nil => unbound (refresh sent unsigned).
 	DeviceKey ed25519.PrivateKey
 
-	// CchubPubKey, when set, enables liveness enforcement: the relay verifies
+	// CCHubPubKey, when set, enables liveness enforcement: the relay verifies
 	// each heartbeat's signed liveness token with this key and drains when no
 	// fresh valid token has arrived. Empty/nil = enforcement disabled (dev).
-	CchubPubKey ed25519.PublicKey
+	CCHubPubKey ed25519.PublicKey
 }
 
 // NewRelay builds an edge relay.
 func NewRelay(cfg Config) *Relay {
-	ch := cfg.CenterHTTP
+	ch := cfg.CCHubHTTP
 	if ch == nil {
 		ch = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -124,18 +124,18 @@ func NewRelay(cfg Config) *Relay {
 	// populate tokens at runtime without rebuilding the relay.
 	owner := &ownerToken{access: cfg.OwnerAccessToken, refresh: cfg.OwnerRefreshToken}
 	return &Relay{
-		edgeID:      cfg.EdgeID,
+		ccdirectID:  cfg.CCDirectID,
 		enrollKey:   cfg.EnrollKey,
 		internalKey: cfg.InternalKey,
 		tokenSecret: cfg.TokenSecret,
 		owner:       owner,
-		centerURL:   strings.TrimRight(cfg.CenterURL, "/"),
-		centerHTTP:  ch,
+		cchubURL:    strings.TrimRight(cfg.CCHubURL, "/"),
+		cchubHTTP:   ch,
 		upstream:    up,
 		maxFailover: mf,
 		maxBodyByte: maxBody,
 		deviceKey:   cfg.DeviceKey,
-		cchubPubKey: cfg.CchubPubKey,
+		cchubPubKey: cfg.CCHubPubKey,
 		now:         now,
 		reporter:    newAnomalyReporter(now),
 	}
@@ -168,10 +168,10 @@ func (e *Relay) SetOnRefresh(fn func(access, refresh string)) {
 // obtained from the center (GET /edge/v1/config), making the relay able to
 // serve. Safe to call while serving. It also fires onRefresh so the new pair is
 // persisted.
-func (e *Relay) Login(access, refresh, edgeID string, tokenSecret []byte) {
+func (e *Relay) Login(access, refresh, ccdirectID string, tokenSecret []byte) {
 	e.owner.set(access, refresh)
 	e.secMu.Lock()
-	e.edgeID = edgeID
+	e.ccdirectID = ccdirectID
 	e.tokenSecret = tokenSecret
 	e.secMu.Unlock()
 	if e.onRefresh != nil {
@@ -185,7 +185,7 @@ func (e *Relay) Login(access, refresh, edgeID string, tokenSecret []byte) {
 func (e *Relay) Logout() {
 	e.owner.clear()
 	e.secMu.Lock()
-	e.edgeID = ""
+	e.ccdirectID = ""
 	e.tokenSecret = nil
 	e.secMu.Unlock()
 	if e.onRefresh != nil {
@@ -193,11 +193,11 @@ func (e *Relay) Logout() {
 	}
 }
 
-// EdgeID returns the current edge id (empty until login).
-func (e *Relay) EdgeID() string {
+// CCDirectID returns the current edge id (empty until login).
+func (e *Relay) CCDirectID() string {
 	e.secMu.RLock()
 	defer e.secMu.RUnlock()
-	return e.edgeID
+	return e.ccdirectID
 }
 
 // LoggedIn reports whether the relay currently holds an owner access token.
@@ -226,19 +226,19 @@ func (e *Relay) RefreshOwner(ctx context.Context) bool {
 // SetSeal installs the edge id + seal secret without touching the owner tokens.
 // Used to bring the relay online from an existing session (after fetching
 // /edge/v1/config) without overwriting the token pair.
-func (e *Relay) SetSeal(edgeID string, tokenSecret []byte) {
+func (e *Relay) SetSeal(ccdirectID string, tokenSecret []byte) {
 	e.secMu.Lock()
-	e.edgeID = edgeID
+	e.ccdirectID = ccdirectID
 	e.tokenSecret = tokenSecret
 	e.secMu.Unlock()
 }
 
 // sealState returns the current edge id + seal secret together under one read
 // lock, so the seal token is always opened against the matching edge id.
-func (e *Relay) sealState() (edgeID string, secret []byte) {
+func (e *Relay) sealState() (ccdirectID string, secret []byte) {
 	e.secMu.RLock()
 	defer e.secMu.RUnlock()
-	return e.edgeID, e.tokenSecret
+	return e.ccdirectID, e.tokenSecret
 }
 
 // unwrapToken resolves the real upstream credential from a lease token. When a
@@ -246,8 +246,8 @@ func (e *Relay) sealState() (edgeID string, secret []byte) {
 // edge + an expiry (contract.OpenLeaseToken); otherwise it is raw (or a PoC HMAC
 // envelope handled by contract.UpstreamBearer).
 func (e *Relay) unwrapToken(leaseToken string) (string, error) {
-	if edgeID, secret := e.sealState(); len(secret) > 0 {
-		return contract.OpenLeaseToken(leaseToken, edgeID, secret, e.now)
+	if ccdirectID, secret := e.sealState(); len(secret) > 0 {
+		return contract.OpenLeaseToken(leaseToken, ccdirectID, secret, e.now)
 	}
 	return contract.UpstreamBearer(leaseToken), nil
 }
@@ -313,7 +313,7 @@ func (e *Relay) relay(w http.ResponseWriter, r *http.Request) {
 		Model:       model,
 		SessionHash: sessionHash,
 		RequestID:   requestID,
-		EdgeID:      e.EdgeID(),
+		CCDirectID:  e.CCDirectID(),
 		Stream:      stream,
 	})
 	if err != nil {
@@ -398,7 +398,7 @@ func (e *Relay) forward(r *http.Request, w http.ResponseWriter, body []byte, req
 		copyForwardHeaders(r.Header, upReq.Header)
 		// Present the leased credential per the account's auth scheme.
 		applyAuthScheme(cand.AuthScheme, upReq, bearer)
-		upReq.Header.Set("X-Edge-Id", e.EdgeID())
+		upReq.Header.Set("X-CCDirect-Id", e.CCDirectID())
 
 		resp, doErr := e.upstream.Do(upReq)
 		if doErr != nil {
@@ -442,13 +442,13 @@ func (e *Relay) forward(r *http.Request, w http.ResponseWriter, body []byte, req
 func (e *Relay) callLease(ctx context.Context, req contract.LeaseRequest) (*contract.LeaseResult, int, error) {
 	buf, _ := json.Marshal(req)
 	do := func() (*http.Response, error) {
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/lease", bytes.NewReader(buf))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.cchubURL+"/v1/lease", bytes.NewReader(buf))
 		if err != nil {
 			return nil, err
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		e.authHeader(httpReq)
-		return e.centerHTTP.Do(httpReq)
+		return e.cchubHTTP.Do(httpReq)
 	}
 	resp, err := do()
 	if err != nil {
@@ -474,13 +474,13 @@ func (e *Relay) callLease(ctx context.Context, req contract.LeaseRequest) (*cont
 
 func (e *Relay) callSettle(ctx context.Context, req contract.SettleRequest) {
 	buf, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/settle", bytes.NewReader(buf))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, e.cchubURL+"/v1/settle", bytes.NewReader(buf))
 	if err != nil {
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	e.authHeader(httpReq)
-	resp, err := e.centerHTTP.Do(httpReq)
+	resp, err := e.cchubHTTP.Do(httpReq)
 	if err != nil {
 		return
 	}

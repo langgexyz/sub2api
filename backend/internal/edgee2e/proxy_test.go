@@ -73,9 +73,9 @@ func TestE2E_EgressThroughProxy(t *testing.T) {
 	proxySrv := httptest.NewServer(prox)
 	defer proxySrv.Close()
 
-	// Center with one account whose upstream is the mock.
+	// CCHub with one account whose upstream is the mock.
 	registry := cchub.NewMemRegistry([]cchub.AccountConfig{{
-		ID: "acc-1", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
+		ID: "acc-1", HomeCCDirectID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
 	}})
 	usage := cchub.NewMemUsageSink()
 	coord := cchub.NewCoordinator(cchub.Config{
@@ -95,10 +95,10 @@ func TestE2E_EgressThroughProxy(t *testing.T) {
 		t.Fatalf("build upstream client: %v", err)
 	}
 	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{
-		EdgeID:    "edge-test",
-		CenterURL: center.URL,
-		Upstream:  upstreamClient,
-		Now:       time.Now,
+		CCDirectID: "edge-test",
+		CCHubURL:   center.URL,
+		Upstream:   upstreamClient,
+		Now:        time.Now,
 	}).Handler())
 	defer edge.Close()
 

@@ -77,7 +77,7 @@ func (e *Relay) handleEgress(w http.ResponseWriter, r *http.Request) {
 	for k, v := range req.Header {
 		outReq.Header.Set(k, v)
 	}
-	outReq.Header.Set("X-Edge-Id", e.edgeID)
+	outReq.Header.Set("X-CCDirect-Id", e.ccdirectID)
 
 	// Use the edge's egress client (proxied -> the VPS's stable IP).
 	resp, err := e.upstream.Do(outReq)

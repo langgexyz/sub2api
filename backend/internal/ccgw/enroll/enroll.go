@@ -17,8 +17,8 @@ import (
 // Token is the single user-facing credential. It embeds the center base URL
 // and an enroll key, so the user copy-pastes exactly one string.
 type Token struct {
-	Center string `json:"center"` // center base URL, e.g. https://center.example.com
-	Key    string `json:"key"`    // enroll key issued by the center login
+	CCHub string `json:"cchub"` // center base URL, e.g. https://center.example.com
+	Key   string `json:"key"`   // enroll key issued by the center login
 }
 
 // EncodeToken serializes a Token to a compact, copy-pasteable string
@@ -31,7 +31,7 @@ func EncodeToken(t Token) string {
 }
 
 // DecodeToken parses a string produced by EncodeToken. Returns an error for
-// malformed input or when Center/Key is empty.
+// malformed input or when CCHub/Key is empty.
 func DecodeToken(s string) (Token, error) {
 	data, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
@@ -41,7 +41,7 @@ func DecodeToken(s string) (Token, error) {
 	if err := json.Unmarshal(data, &t); err != nil {
 		return Token{}, fmt.Errorf("enroll: token payload is not valid JSON: %w", err)
 	}
-	if t.Center == "" {
+	if t.CCHub == "" {
 		return Token{}, errors.New("enroll: token is missing center URL")
 	}
 	if t.Key == "" {
@@ -53,8 +53,8 @@ func DecodeToken(s string) (Token, error) {
 // Enrolled is the persisted edge configuration: the center URL + enroll key
 // the edge keeps, plus the parameters the center issued at enroll time.
 type Enrolled struct {
-	CenterURL        string   `json:"center_url"`
-	EdgeID           string   `json:"edge_id"`
+	CCHubURL         string   `json:"cchub_url"`
+	CCDirectID       string   `json:"ccdirect_id"`
 	EnrollKey        string   `json:"enroll_key"`
 	HeartbeatSeconds int      `json:"heartbeat_seconds"`
 	MaxFailover      int      `json:"max_failover"`

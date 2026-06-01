@@ -16,11 +16,11 @@ import (
 )
 
 // Sealed lease tokens: instead of returning the raw upstream credential in the
-// lease response, cchub AEAD-encrypts it bound to {edgeID, expiry}. ccdirect
+// lease response, cchub AEAD-encrypts it bound to {ccdirectID, expiry}. ccdirect
 // decrypts it with the same shared key just before use, then discards it.
 //
 // What this buys (defense-in-depth on top of mTLS):
-//   - a captured lease response is useless to a DIFFERENT edge (AAD = edgeID),
+//   - a captured lease response is useless to a DIFFERENT edge (AAD = ccdirectID),
 //   - and useless after it expires (short TTL), bounding replay,
 //   - and opaque to any mTLS-terminating intermediary (it stays encrypted at the
 //     application layer).
@@ -34,8 +34,8 @@ func deriveSealKey(secret []byte) []byte {
 	return sum[:]
 }
 
-// SealLeaseToken AEAD-encrypts token bound to edgeID with a TTL-derived expiry.
-func SealLeaseToken(token, edgeID string, ttl time.Duration, secret []byte, now func() time.Time) (string, error) {
+// SealLeaseToken AEAD-encrypts token bound to ccdirectID with a TTL-derived expiry.
+func SealLeaseToken(token, ccdirectID string, ttl time.Duration, secret []byte, now func() time.Time) (string, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -51,13 +51,13 @@ func SealLeaseToken(token, edgeID string, ttl time.Duration, secret []byte, now 
 	plain := make([]byte, 8+len(token))
 	binary.BigEndian.PutUint64(plain[:8], uint64(exp))
 	copy(plain[8:], token)
-	sealed := gcm.Seal(nonce, nonce, plain, []byte(edgeID))
+	sealed := gcm.Seal(nonce, nonce, plain, []byte(ccdirectID))
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-// OpenLeaseToken decrypts a sealed token, verifying the edgeID binding and that
+// OpenLeaseToken decrypts a sealed token, verifying the ccdirectID binding and that
 // it has not expired. Any tampering / wrong key / wrong edge / expiry fails.
-func OpenLeaseToken(sealed, edgeID string, secret []byte, now func() time.Time) (string, error) {
+func OpenLeaseToken(sealed, ccdirectID string, secret []byte, now func() time.Time) (string, error) {
 	if now == nil {
 		now = time.Now
 	}
@@ -73,7 +73,7 @@ func OpenLeaseToken(sealed, edgeID string, secret []byte, now func() time.Time) 
 		return "", errors.New("contract: sealed token too short")
 	}
 	nonce, ct := raw[:gcm.NonceSize()], raw[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, ct, []byte(edgeID))
+	plain, err := gcm.Open(nil, nonce, ct, []byte(ccdirectID))
 	if err != nil {
 		return "", errors.New("contract: sealed token invalid (wrong key/edge or tampered)")
 	}

@@ -21,28 +21,28 @@ import (
 
 // LivenessToken is the cchub-signed liveness assertion returned on heartbeat.
 type LivenessToken struct {
-	EdgeID    string `json:"edge_id"`
-	ExpiresAt int64  `json:"exp"` // unix seconds
-	Signature string `json:"sig"` // base64(ed25519 sig over canonical payload)
+	CCDirectID string `json:"ccdirect_id"`
+	ExpiresAt  int64  `json:"exp"` // unix seconds
+	Signature  string `json:"sig"` // base64(ed25519 sig over canonical payload)
 }
 
 // livenessPayload is the exact byte string signed/verified: "edge_id\nexp".
-func livenessPayload(edgeID string, exp int64) []byte {
-	return []byte(edgeID + "\n" + strconv.FormatInt(exp, 10))
+func livenessPayload(ccdirectID string, exp int64) []byte {
+	return []byte(ccdirectID + "\n" + strconv.FormatInt(exp, 10))
 }
 
-// SignLiveness produces a LivenessToken for edgeID valid for ttl, signed with
+// SignLiveness produces a LivenessToken for ccdirectID valid for ttl, signed with
 // priv. now defaults to time.Now when nil.
-func SignLiveness(priv ed25519.PrivateKey, edgeID string, ttl time.Duration, now func() time.Time) LivenessToken {
+func SignLiveness(priv ed25519.PrivateKey, ccdirectID string, ttl time.Duration, now func() time.Time) LivenessToken {
 	if now == nil {
 		now = time.Now
 	}
 	exp := now().Add(ttl).Unix()
-	sig := ed25519.Sign(priv, livenessPayload(edgeID, exp))
+	sig := ed25519.Sign(priv, livenessPayload(ccdirectID, exp))
 	return LivenessToken{
-		EdgeID:    edgeID,
-		ExpiresAt: exp,
-		Signature: base64.StdEncoding.EncodeToString(sig),
+		CCDirectID: ccdirectID,
+		ExpiresAt:  exp,
+		Signature:  base64.StdEncoding.EncodeToString(sig),
 	}
 }
 
@@ -59,18 +59,18 @@ var (
 
 // VerifyLiveness checks a token against pub: the signature must verify, edge_id
 // must match, and it must not be expired (relative to now, default time.Now).
-func VerifyLiveness(pub ed25519.PublicKey, tok LivenessToken, edgeID string, now func() time.Time) error {
+func VerifyLiveness(pub ed25519.PublicKey, tok LivenessToken, ccdirectID string, now func() time.Time) error {
 	if now == nil {
 		now = time.Now
 	}
-	if tok.EdgeID != edgeID {
+	if tok.CCDirectID != ccdirectID {
 		return ErrLivenessWrongEdge
 	}
 	sig, err := base64.StdEncoding.DecodeString(tok.Signature)
 	if err != nil {
 		return ErrLivenessMalformed
 	}
-	if !ed25519.Verify(pub, livenessPayload(tok.EdgeID, tok.ExpiresAt), sig) {
+	if !ed25519.Verify(pub, livenessPayload(tok.CCDirectID, tok.ExpiresAt), sig) {
 		return ErrLivenessBadSig
 	}
 	if now().Unix() > tok.ExpiresAt {

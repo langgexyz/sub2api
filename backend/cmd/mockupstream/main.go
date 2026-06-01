@@ -37,7 +37,7 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(body, &parsed)
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	log.Printf("mockupstream: %s model=%s stream=%v bearer=%q edge=%s",
-		r.URL.Path, parsed.Model, parsed.Stream, bearer, r.Header.Get("X-Edge-Id"))
+		r.URL.Path, parsed.Model, parsed.Stream, bearer, r.Header.Get("X-CCDirect-Id"))
 
 	w.Header().Set("X-Usage-Input-Tokens", "11")
 	w.Header().Set("X-Usage-Output-Tokens", "22")

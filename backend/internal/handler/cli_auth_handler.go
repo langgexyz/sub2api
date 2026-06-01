@@ -41,8 +41,8 @@ const deviceSignatureSkew = 120 * time.Second
 
 // Device-signature headers carried by the edge on bound calls.
 const (
-	headerCcdirectTimestamp = "X-Ccdirect-Timestamp"
-	headerCcdirectSignature = "X-Ccdirect-Signature"
+	headerCcdirectTimestamp = "X-CCDirect-Timestamp"
+	headerCcdirectSignature = "X-CCDirect-Signature"
 )
 
 // errInvalidPubKeyLen is returned when a decoded device pubkey is not 32 bytes.
@@ -257,7 +257,7 @@ func (h *AuthHandler) verifyDeviceRefreshSignature(c *gin.Context, refreshToken 
 //
 //	<HTTP_METHOD>
 //	<REQUEST_PATH>            // no query
-//	<X-Ccdirect-Timestamp>
+//	<X-CCDirect-Timestamp>
 //	<hex(sha256(raw_request_body))>
 func canonicalSignString(method, path, timestamp string, rawBody []byte) string {
 	sum := sha256.Sum256(rawBody)

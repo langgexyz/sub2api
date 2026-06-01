@@ -18,13 +18,13 @@ import (
 
 // Register announces this edge to the center once.
 func (e *Relay) Register(ctx context.Context, egressIP string, platforms []string) error {
-	body, _ := json.Marshal(contract.RegisterRequest{EdgeID: e.EdgeID(), EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/register", bytes.NewReader(body))
+	body, _ := json.Marshal(contract.RegisterRequest{CCDirectID: e.CCDirectID(), EnrollKey: e.enrollKey, EgressIP: egressIP, Platforms: platforms})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.cchubURL+"/v1/register", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.centerHTTP.Do(req)
+	resp, err := e.cchubHTTP.Do(req)
 	if err != nil {
 		return err
 	}
@@ -35,13 +35,13 @@ func (e *Relay) Register(ctx context.Context, egressIP string, platforms []strin
 // heartbeat pings the center once; returns false if the center does not know
 // this edge (caller should re-register).
 func (e *Relay) heartbeat(ctx context.Context) (known bool, err error) {
-	body, _ := json.Marshal(contract.HeartbeatRequest{EdgeID: e.EdgeID()})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.centerURL+"/v1/heartbeat", bytes.NewReader(body))
+	body, _ := json.Marshal(contract.HeartbeatRequest{CCDirectID: e.CCDirectID()})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.cchubURL+"/v1/heartbeat", bytes.NewReader(body))
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.centerHTTP.Do(req)
+	resp, err := e.cchubHTTP.Do(req)
 	if err != nil {
 		return false, err
 	}
@@ -55,7 +55,7 @@ func (e *Relay) heartbeat(ctx context.Context) (known bool, err error) {
 	// expires. Verification is skipped when no cchub pubkey is embedded.
 	var hbResp contract.HeartbeatResponse
 	if derr := json.NewDecoder(resp.Body).Decode(&hbResp); derr == nil && hbResp.Liveness != nil && e.cchubPubKey != nil {
-		if verr := contract.VerifyLiveness(e.cchubPubKey, *hbResp.Liveness, e.EdgeID(), e.now); verr == nil {
+		if verr := contract.VerifyLiveness(e.cchubPubKey, *hbResp.Liveness, e.CCDirectID(), e.now); verr == nil {
 			e.recordLiveness(hbResp.Liveness.ExpiresAt)
 		}
 	}

@@ -26,15 +26,15 @@ func runConsoleClient(cfg edgeFlags, sessionPath, sockPath string) {
 	dkPath, _ := deviceKeyPath(sessionPath)
 	dk, dkErr := loadOrCreateDeviceKey(dkPath)
 	if dkErr != nil {
-		log.Printf("edge: warning: device key unavailable (%v); login may fail", dkErr)
+		log.Printf("ccdirect: warning: device key unavailable (%v); login may fail", dkErr)
 	}
 
-	fmt.Printf("edge %s: attached to running daemon (control=%s)\n", Version, sockPath)
+	fmt.Printf("ccdirect %s: attached to running daemon (control=%s)\n", Version, sockPath)
 	printClientStatus(sockPath)
 
 	sc := bufio.NewScanner(os.Stdin)
 	fmt.Println("Type /login, /logout, /status, or /quit (the daemon keeps running).")
-	prompt := func() { fmt.Print("edge> ") }
+	prompt := func() { fmt.Print("ccdirect> ") }
 	prompt()
 	for sc.Scan() {
 		switch strings.TrimSpace(sc.Text()) {
@@ -58,19 +58,19 @@ func runConsoleClient(cfg edgeFlags, sessionPath, sockPath string) {
 
 // clientLogin runs the local loopback+PKCE browser login and pushes the resulting
 // token pair to the daemon.
-func clientLogin(hc *http.Client, authBase, centerEdge string, dk deviceKey, sockPath string) {
+func clientLogin(hc *http.Client, authBase, cchubBase string, dk deviceKey, sockPath string) {
 	ctx := context.Background()
-	res, err := loopbackLogin(ctx, hc, authBase, authBase, centerEdge, dk)
+	res, err := loopbackLogin(ctx, hc, authBase, authBase, cchubBase, dk)
 	if err != nil {
 		fmt.Printf("login failed: %v\n", err)
 		return
 	}
 	resp, err := controlRoundTrip(sockPath, controlRequest{
-		Cmd:     cmdLogin,
-		Access:  res.access,
-		Refresh: res.refresh,
-		EdgeID:  res.edgeID,
-		Secret:  hex.EncodeToString(res.secret),
+		Cmd:        cmdLogin,
+		Access:     res.access,
+		Refresh:    res.refresh,
+		CCDirectID: res.ccdirectID,
+		Secret:     hex.EncodeToString(res.secret),
 	})
 	if err != nil {
 		fmt.Printf("login: could not reach daemon: %v\n", err)
@@ -80,7 +80,7 @@ func clientLogin(hc *http.Client, authBase, centerEdge string, dk deviceKey, soc
 		fmt.Printf("login rejected by daemon: %s\n", resp.Error)
 		return
 	}
-	fmt.Printf("logged in (pushed to daemon, edge %s)\n", res.edgeID)
+	fmt.Printf("logged in (pushed to daemon, edge %s)\n", res.ccdirectID)
 }
 
 // clientLogout asks the daemon to revoke + clear credentials (the daemon performs
@@ -117,7 +117,7 @@ func printClientStatus(sockPath string) {
 func renderStatusInfo(s *statusInfo) {
 	if !s.LoggedIn {
 		fmt.Println("  status: logged out (run /login)")
-		fmt.Printf("  center: %s\n", s.Center)
+		fmt.Printf("  center: %s\n", s.CCHub)
 		fmt.Printf("  listen: %s\n", s.Listen)
 		return
 	}
@@ -127,8 +127,8 @@ func renderStatusInfo(s *statusInfo) {
 		owner = "unknown"
 	}
 	fmt.Printf("  owner:  %s\n", owner)
-	fmt.Printf("  edge:   %s\n", s.EdgeID)
-	fmt.Printf("  center: %s\n", s.Center)
+	fmt.Printf("  edge:   %s\n", s.CCDirectID)
+	fmt.Printf("  center: %s\n", s.CCHub)
 	fmt.Printf("  listen: %s\n", s.Listen)
 	expiry := s.AccessExpires
 	if expiry == "" {

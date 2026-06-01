@@ -21,17 +21,17 @@ import (
 )
 
 // Loopback + PKCE + device-key login client for the edge (ccdirect). authBase is
-// the sub2api API root (center base with any trailing /edge stripped); centerEdge
+// the sub2api API root (center base with any trailing /edge stripped); cchubBase
 // is the edge control-plane base (…/edge) used for GET /v1/config; centerWebBase
 // is the sub2api web origin that serves the /cli/authorize SPA route.
 // See docs/tech/ccdirect-auth-contract.md.
 
 // loginResult carries everything a successful login yields.
 type loginResult struct {
-	access  string
-	refresh string
-	edgeID  string
-	secret  []byte
+	access     string
+	refresh    string
+	ccdirectID string
+	secret     []byte
 }
 
 // cliTokenResp is the POST /api/v1/auth/cli/token response. Fields may be
@@ -72,7 +72,7 @@ const loginTimeout = 5 * time.Minute
 // waits for the authorization code to land on the loopback server, exchanges it
 // for tokens at /api/v1/auth/cli/token, then fetches the edge config (seal
 // secret + edge id). Blocks until success, error, or ctx done.
-func loopbackLogin(ctx context.Context, hc *http.Client, authBase, centerWebBase, centerEdge string, dk deviceKey) (loginResult, error) {
+func loopbackLogin(ctx context.Context, hc *http.Client, authBase, centerWebBase, cchubBase string, dk deviceKey) (loginResult, error) {
 	verifier, err := genVerifier()
 	if err != nil {
 		return loginResult{}, fmt.Errorf("generate code verifier: %w", err)
@@ -160,11 +160,11 @@ func loopbackLogin(ctx context.Context, hc *http.Client, authBase, centerWebBase
 		return loginResult{}, errors.New("center returned an empty access token")
 	}
 
-	cfg, err := fetchConfig(ctx, hc, centerEdge, access)
+	cfg, err := fetchConfig(ctx, hc, cchubBase, access)
 	if err != nil {
 		return loginResult{}, fmt.Errorf("fetch edge config: %w", err)
 	}
-	return loginResult{access: access, refresh: refresh, edgeID: cfg.EdgeID, secret: []byte(cfg.TokenSecret)}, nil
+	return loginResult{access: access, refresh: refresh, ccdirectID: cfg.CCDirectID, secret: []byte(cfg.TokenSecret)}, nil
 }
 
 // genVerifier returns a PKCE code_verifier: 43-char base64url (no padding) of 32
@@ -210,8 +210,8 @@ func buildAuthorizeURL(centerWebBase, challenge, redirectURI, state, devicePubB6
 
 // fetchConfig calls GET /edge/v1/config with the owner JWT and returns the
 // center-issued edge config (seal secret, edge id, platforms, …).
-func fetchConfig(ctx context.Context, hc *http.Client, centerEdge, access string) (contract.EnrollResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(centerEdge, "/")+"/v1/config", nil)
+func fetchConfig(ctx context.Context, hc *http.Client, cchubBase, access string) (contract.EnrollResponse, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cchubBase, "/")+"/v1/config", nil)
 	if err != nil {
 		return contract.EnrollResponse{}, err
 	}
@@ -277,6 +277,6 @@ func postJSON[T any](ctx context.Context, hc *http.Client, url string, body any,
 
 // authBaseFromCenter strips a trailing /edge from the center edge base so auth
 // calls reach the sub2api API root.
-func authBaseFromCenter(centerEdge string) string {
-	return strings.TrimSuffix(strings.TrimRight(centerEdge, "/"), "/edge")
+func authBaseFromCenter(cchubBase string) string {
+	return strings.TrimSuffix(strings.TrimRight(cchubBase, "/"), "/edge")
 }

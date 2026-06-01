@@ -676,7 +676,7 @@ type RefreshTokenResponse struct {
 // POST /api/v1/auth/refresh
 //
 // 设备绑定（ccdirect/edge loopback+PKCE 登录）：如果该 refresh token 绑定了设备
-// 公钥，则刷新必须携带有效的 X-Ccdirect-Timestamp + X-Ccdirect-Signature
+// 公钥，则刷新必须携带有效的 X-CCDirect-Timestamp + X-CCDirect-Signature
 // （Ed25519，对 canonical string 签名），用绑定的公钥验签通过后才轮换。未绑定的
 // refresh token（Web 端）行为不变。轮换后保持设备绑定。
 func (h *AuthHandler) RefreshToken(c *gin.Context) {

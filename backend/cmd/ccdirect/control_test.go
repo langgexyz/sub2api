@@ -14,7 +14,7 @@ import (
 
 func TestControlMessageRoundTrip(t *testing.T) {
 	var buf bytes.Buffer
-	in := controlRequest{Cmd: cmdLogin, Access: "a", Refresh: "r", EdgeID: "e1", Secret: "s"}
+	in := controlRequest{Cmd: cmdLogin, Access: "a", Refresh: "r", CCDirectID: "e1", Secret: "s"}
 	if err := writeControlMessage(&buf, in); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -51,7 +51,7 @@ func startTestControl(t *testing.T, h controlHandler) string {
 }
 
 func TestServeControlStatusRoundTrip(t *testing.T) {
-	want := &statusInfo{LoggedIn: true, Owner: "me@x", EdgeID: "edge-1", Center: "c", Listen: ":9", Version: "test"}
+	want := &statusInfo{LoggedIn: true, Owner: "me@x", CCDirectID: "edge-1", CCHub: "c", Listen: ":9", Version: "test"}
 	sock := startTestControl(t, func(req controlRequest) controlResponse {
 		if req.Cmd != cmdStatus {
 			return controlResponse{OK: false, Error: "unexpected cmd"}
@@ -74,7 +74,7 @@ func TestServeControlLoginDispatch(t *testing.T) {
 		got = req
 		return controlResponse{OK: true}
 	})
-	in := controlRequest{Cmd: cmdLogin, Access: "acc", Refresh: "ref", EdgeID: "e9", Secret: "sec"}
+	in := controlRequest{Cmd: cmdLogin, Access: "acc", Refresh: "ref", CCDirectID: "e9", Secret: "sec"}
 	resp, err := controlRoundTrip(sock, in)
 	if err != nil {
 		t.Fatalf("round trip: %v", err)

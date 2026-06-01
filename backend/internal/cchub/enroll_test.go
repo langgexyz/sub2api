@@ -42,10 +42,10 @@ func TestCenterEnroll_IssuesConfig(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if er.EdgeID == "" {
+	if er.CCDirectID == "" {
 		t.Fatalf("center must assign an edge id")
 	}
-	if er.CenterURL != "http://center.example" || er.HeartbeatSeconds != 7 || er.MaxFailover != 2 {
+	if er.CCHubURL != "http://center.example" || er.HeartbeatSeconds != 7 || er.MaxFailover != 2 {
 		t.Fatalf("issued config wrong: %+v", er)
 	}
 	if len(er.Platforms) != 1 || er.Platforms[0] != "anthropic" {
@@ -73,7 +73,7 @@ func TestCenterRegister_AutoDetectsEgressIP(t *testing.T) {
 	defer srv.Close()
 
 	// EgressIP intentionally empty: the center should fill it from the connection.
-	body, _ := json.Marshal(contract.RegisterRequest{EdgeID: "e1", EnrollKey: "k", Platforms: []string{"anthropic"}})
+	body, _ := json.Marshal(contract.RegisterRequest{CCDirectID: "e1", EnrollKey: "k", Platforms: []string{"anthropic"}})
 	resp, err := http.Post(srv.URL+"/v1/register", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("register: %v", err)
