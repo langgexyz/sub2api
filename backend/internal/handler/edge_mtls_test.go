@@ -65,22 +65,22 @@ func mkClientCertPEM(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.Privat
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-func newGuardWithCA(t *testing.T, caPEM []byte) *EdgeMTLSGuard {
+func newGuardWithCA(t *testing.T, caPEM []byte) *CCDirectMTLSGuard {
 	t.Helper()
 	dir := t.TempDir()
 	caPath := filepath.Join(dir, "ca.pem")
 	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("EDGE_MTLS_CLIENT_CA", caPath)
-	g, err := NewEdgeMTLSGuard()
+	t.Setenv("CCDIRECT_MTLS_CLIENT_CA", caPath)
+	g, err := NewCCDirectMTLSGuard()
 	if err != nil {
 		t.Fatalf("guard: %v", err)
 	}
 	return g
 }
 
-func runGuard(g *EdgeMTLSGuard, setup func(*http.Request)) int {
+func runGuard(g *CCDirectMTLSGuard, setup func(*http.Request)) int {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/edge/v1/lease", g.Middleware(), func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -94,8 +94,8 @@ func runGuard(g *EdgeMTLSGuard, setup func(*http.Request)) int {
 }
 
 func TestEdgeMTLSGuard_Disabled_NoCA(t *testing.T) {
-	t.Setenv("EDGE_MTLS_CLIENT_CA", "")
-	g, err := NewEdgeMTLSGuard()
+	t.Setenv("CCDIRECT_MTLS_CLIENT_CA", "")
+	g, err := NewCCDirectMTLSGuard()
 	if err != nil {
 		t.Fatal(err)
 	}

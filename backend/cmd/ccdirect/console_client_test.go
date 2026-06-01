@@ -29,14 +29,14 @@ func captureStdout(t *testing.T, fn func()) string {
 
 func TestRenderStatusInfo(t *testing.T) {
 	loggedOut := captureStdout(t, func() {
-		renderStatusInfo(&statusInfo{Center: "http://c/edge", Listen: ":8088"})
+		renderStatusInfo(&statusInfo{CCHub: "http://c/edge", Listen: ":8088"})
 	})
 	if !strings.Contains(loggedOut, "logged out") || !strings.Contains(loggedOut, ":8088") {
 		t.Fatalf("logged-out render missing fields:\n%s", loggedOut)
 	}
 
 	loggedIn := captureStdout(t, func() {
-		renderStatusInfo(&statusInfo{LoggedIn: true, Owner: "me@x (uid 1)", EdgeID: "edge-2", Center: "http://c/edge", Listen: ":8088", AccessExpires: "1h0m0s"})
+		renderStatusInfo(&statusInfo{LoggedIn: true, Owner: "me@x (uid 1)", CCDirectID: "edge-2", CCHub: "http://c/edge", Listen: ":8088", AccessExpires: "1h0m0s"})
 	})
 	for _, want := range []string{"logged in", "me@x", "edge-2", "1h0m0s"} {
 		if !strings.Contains(loggedIn, want) {
@@ -68,7 +68,7 @@ func TestClientLogoutDaemonUnreachable(t *testing.T) {
 
 func TestPrintClientStatusRendersDaemonReply(t *testing.T) {
 	sock := startTestControl(t, func(controlRequest) controlResponse {
-		return controlResponse{OK: true, Status: &statusInfo{LoggedIn: true, EdgeID: "edge-9", Center: "c", Listen: ":1"}}
+		return controlResponse{OK: true, Status: &statusInfo{LoggedIn: true, CCDirectID: "edge-9", CCHub: "c", Listen: ":1"}}
 	})
 	out := captureStdout(t, func() { printClientStatus(sock) })
 	if !strings.Contains(out, "logged in") || !strings.Contains(out, "edge-9") {

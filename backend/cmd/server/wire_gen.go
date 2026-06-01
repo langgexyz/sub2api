@@ -8,6 +8,11 @@ package main
 
 import (
 	"context"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -18,14 +23,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
-	"log"
-	"net/http"
-	"sync"
-	"time"
-)
 
-import (
 	_ "embed"
+
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 )
 
@@ -250,7 +250,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	handlerPaymentHandler := handler.NewPaymentHandler(paymentService, paymentConfigService, channelService)
 	paymentWebhookHandler := handler.NewPaymentWebhookHandler(paymentService, registry)
 	availableChannelHandler := handler.NewAvailableChannelHandler(channelService, apiKeyService, settingService)
-	edgeCenterHandler := handler.NewEdgeCenterHandler(apiKeyService, gatewayService, billingCacheService, authService)
+	edgeCenterHandler := handler.NewCCHubHandler(apiKeyService, gatewayService, billingCacheService, authService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
 	handlers := handler.ProvideHandlers(authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, edgeCenterHandler, idempotencyCoordinator, idempotencyCleanupService)

@@ -30,25 +30,25 @@ type edgeFlags struct {
 
 func parseFlags(args []string) edgeFlags {
 	fs := flag.NewFlagSet("edge", flag.ExitOnError)
-	addr := fs.String("addr", env("EDGE_ADDR", ":8088"), "listen address for client traffic [EDGE_ADDR]")
-	center := fs.String("center", env("EDGE_CENTER_URL", "http://localhost:8080/edge"), "center edge base URL, ending in /edge [EDGE_CENTER_URL]")
-	platforms := fs.String("platforms", env("EDGE_PLATFORMS", ""), "comma-separated platforms to advertise [EDGE_PLATFORMS]")
-	egressIP := fs.String("egress-ip", env("EDGE_EGRESS_IP", ""), "stable egress IP reported to center (auto-detected if empty) [EDGE_EGRESS_IP]")
-	maxFailover := fs.Int("max-failover", envInt("EDGE_MAX_FAILOVER", 3), "max candidates to try locally [EDGE_MAX_FAILOVER]")
-	upstreamProxy := fs.String("upstream-proxy", env("EDGE_UPSTREAM_PROXY", ""), "egress proxy: http/https/socks5 (empty=direct) [EDGE_UPSTREAM_PROXY]")
-	upstreamTimeout := fs.Duration("upstream-timeout", envDuration("EDGE_UPSTREAM_TIMEOUT", 5*time.Minute), "upstream timeout [EDGE_UPSTREAM_TIMEOUT]")
-	heartbeat := fs.Duration("heartbeat", envDuration("EDGE_HEARTBEAT", 10*time.Second), "heartbeat interval [EDGE_HEARTBEAT]")
-	internalKey := fs.String("internal-key", env("EDGE_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [EDGE_INTERNAL_KEY]")
-	statePath := fs.String("session", env("EDGE_SESSION", ""), "session file path (default: per-user config dir) [EDGE_SESSION]")
-	upgradeInterval := fs.Duration("upgrade-interval", envDuration("EDGE_UPGRADE_INTERVAL", 6*time.Hour), "daemon self-update check cadence, 0 to disable [EDGE_UPGRADE_INTERVAL]")
+	addr := fs.String("addr", env("CCDIRECT_ADDR", ":8088"), "listen address for client traffic [CCDIRECT_ADDR]")
+	center := fs.String("cchub", env("CCDIRECT_CCHUB_URL", "http://localhost:8080/edge"), "center edge base URL, ending in /edge [CCDIRECT_CCHUB_URL]")
+	platforms := fs.String("platforms", env("CCDIRECT_PLATFORMS", ""), "comma-separated platforms to advertise [CCDIRECT_PLATFORMS]")
+	egressIP := fs.String("egress-ip", env("CCDIRECT_EGRESS_IP", ""), "stable egress IP reported to center (auto-detected if empty) [CCDIRECT_EGRESS_IP]")
+	maxFailover := fs.Int("max-failover", envInt("CCDIRECT_MAX_FAILOVER", 3), "max candidates to try locally [CCDIRECT_MAX_FAILOVER]")
+	upstreamProxy := fs.String("upstream-proxy", env("CCDIRECT_UPSTREAM_PROXY", ""), "egress proxy: http/https/socks5 (empty=direct) [CCDIRECT_UPSTREAM_PROXY]")
+	upstreamTimeout := fs.Duration("upstream-timeout", envDuration("CCDIRECT_UPSTREAM_TIMEOUT", 5*time.Minute), "upstream timeout [CCDIRECT_UPSTREAM_TIMEOUT]")
+	heartbeat := fs.Duration("heartbeat", envDuration("CCDIRECT_HEARTBEAT", 10*time.Second), "heartbeat interval [CCDIRECT_HEARTBEAT]")
+	internalKey := fs.String("internal-key", env("CCDIRECT_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [CCDIRECT_INTERNAL_KEY]")
+	statePath := fs.String("session", env("CCDIRECT_SESSION", ""), "session file path (default: per-user config dir) [CCDIRECT_SESSION]")
+	upgradeInterval := fs.Duration("upgrade-interval", envDuration("CCDIRECT_UPGRADE_INTERVAL", 6*time.Hour), "daemon self-update check cadence, 0 to disable [CCDIRECT_UPGRADE_INTERVAL]")
 	_ = fs.Parse(args)
 
 	// Enforce HTTPS to the center: ccdirect↔cchub carries owner tokens, sealed
 	// lease tokens and usage — it must not run in cleartext. A loopback center
-	// (local dev / a local cchub) is exempt; EDGE_INSECURE=1 is an explicit
+	// (local dev / a local cchub) is exempt; CCDIRECT_INSECURE=1 is an explicit
 	// escape hatch for non-loopback plaintext (testing only).
-	if err := requireSecureCenter(*center, os.Getenv("EDGE_INSECURE") == "1"); err != nil {
-		log.Fatalf("edge: %v", err)
+	if err := requireSecureCenter(*center, os.Getenv("CCDIRECT_INSECURE") == "1"); err != nil {
+		log.Fatalf("ccdirect: %v", err)
 	}
 
 	return edgeFlags{
@@ -69,26 +69,26 @@ func parseFlags(args []string) edgeFlags {
 // requireSecureCenter rejects a non-HTTPS center URL unless it targets loopback
 // (127.0.0.1/::1/localhost) or insecure is explicitly allowed. Returns an error
 // describing why; nil means the center URL is acceptable.
-func requireSecureCenter(centerURL string, allowInsecure bool) error {
-	u, err := url.Parse(centerURL)
+func requireSecureCenter(cchubURL string, allowInsecure bool) error {
+	u, err := url.Parse(cchubURL)
 	if err != nil {
-		return fmt.Errorf("invalid center URL %q: %w", centerURL, err)
+		return fmt.Errorf("invalid center URL %q: %w", cchubURL, err)
 	}
 	if u.Scheme == "https" {
 		return nil
 	}
 	if u.Scheme != "http" {
-		return fmt.Errorf("center URL must be http(s): got scheme %q in %q", u.Scheme, centerURL)
+		return fmt.Errorf("center URL must be http(s): got scheme %q in %q", u.Scheme, cchubURL)
 	}
 	// scheme == http from here.
 	if isLoopbackHost(u.Hostname()) {
 		return nil // local dev / local cchub
 	}
 	if allowInsecure {
-		log.Printf("edge: WARNING: using plaintext HTTP to a non-loopback center (%s) — EDGE_INSECURE=1 set; do NOT use in production", centerURL)
+		log.Printf("ccdirect: WARNING: using plaintext HTTP to a non-loopback center (%s) — CCDIRECT_INSECURE=1 set; do NOT use in production", cchubURL)
 		return nil
 	}
-	return fmt.Errorf("center URL must use HTTPS for a non-loopback host: %q (set EDGE_INSECURE=1 to override for testing)", centerURL)
+	return fmt.Errorf("center URL must use HTTPS for a non-loopback host: %q (set CCDIRECT_INSECURE=1 to override for testing)", cchubURL)
 }
 
 // isLoopbackHost reports whether host is a loopback address or "localhost".

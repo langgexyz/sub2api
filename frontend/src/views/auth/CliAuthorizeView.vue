@@ -111,7 +111,7 @@ async function handleAuthorize(): Promise<void> {
       device_pubkey: devicePubkey.value,
       name: deviceName.value || undefined
     })
-    // Hand the authorization code to the edge's loopback server.
+    // Hand the authorization code to the ccdirect's loopback server.
     window.location.href = redirect_to
   } catch {
     errorMessage.value = t('cliAuthorize.failed')

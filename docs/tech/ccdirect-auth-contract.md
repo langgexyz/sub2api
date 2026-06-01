@@ -117,7 +117,7 @@ edge must re-login). Pick the lighter one; note the choice.
 8. shut down loopback server. Print `logged in as <email>`.
 
 `<center-web>` = the center base with `/edge` stripped (the sub2api web origin).
-The edge already has `EDGE_CENTER_URL` ending in `/edge`; reuse
+The edge already has `CCDIRECT_CCHUB_URL` ending in `/edge`; reuse
 `authBaseFromCenter`.
 
 Token refresh (existing `refreshOwner`): add the device signature headers; on

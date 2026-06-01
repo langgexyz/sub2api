@@ -99,7 +99,7 @@ func (app *edgeApp) controlHandler(req controlRequest) controlResponse {
 		if err != nil {
 			return controlResponse{OK: false, Error: "invalid seal secret encoding: " + err.Error()}
 		}
-		app.relay.Login(req.Access, req.Refresh, req.EdgeID, secret)
+		app.relay.Login(req.Access, req.Refresh, req.CCDirectID, secret)
 		return controlResponse{OK: true, Status: app.statusSnapshot()}
 	case cmdLogout:
 		logoutCenter(context.Background(), app.httpClient, app.authBase, app.relay.OwnerRefresh())
@@ -113,12 +113,12 @@ func (app *edgeApp) controlHandler(req controlRequest) controlResponse {
 // statusSnapshot captures the relay state for a control status reply (mirrors the
 // console's printStatus fields).
 func (app *edgeApp) statusSnapshot() *statusInfo {
-	s := &statusInfo{Center: app.centerEdge, Listen: app.addr, Version: Version}
+	s := &statusInfo{CCHub: app.cchubBase, Listen: app.addr, Version: Version}
 	if !app.relay.LoggedIn() {
 		return s
 	}
 	s.LoggedIn = true
-	s.EdgeID = app.relay.EdgeID()
+	s.CCDirectID = app.relay.CCDirectID()
 	if claims, ok := parseJWTUnverified(app.relay.OwnerAccess()); ok {
 		if claims.Email != "" {
 			s.Owner = fmt.Sprintf("%s (uid %d)", claims.Email, claims.UserID)

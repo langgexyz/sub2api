@@ -7,21 +7,21 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // Enrollment turns one user-supplied token into a fully-configured edge: the
 // center validates the enroll key, assigns an edge ID, and issues the operating
 // parameters (heartbeat interval, failover count, platforms) so the edge needs
-// no local flags beyond the token. See cmd/edge and internal/edgegw/enroll.
+// no local flags beyond the token. See cmd/ccdirect and internal/ccgw/enroll.
 
 // contract.EnrollRequest / contract.EnrollResponse moved to the shared contract package (aliased
 // in contract.go) — both ccdirect and cchub use them.
 
 // SetEnrollConfig sets the parameters the center issues to edges at enroll time.
-func (s *Server) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFailover int, platforms []string) {
+func (s *Server) SetEnrollConfig(cchubURL string, heartbeatSeconds, maxFailover int, platforms []string) {
 	s.mu.Lock()
-	s.issuedCenterURL = centerURL
+	s.issuedCenterURL = cchubURL
 	s.issuedHeartbeat = heartbeatSeconds
 	s.issuedMaxFailover = maxFailover
 	s.issuedPlatforms = append([]string(nil), platforms...)
@@ -43,15 +43,15 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	edgeID := req.EdgeID
-	if edgeID == "" {
-		edgeID = "edge-" + strconv.FormatInt(atomic.AddInt64(&s.enrollSeq, 1), 10)
+	ccdirectID := req.CCDirectID
+	if ccdirectID == "" {
+		ccdirectID = "edge-" + strconv.FormatInt(atomic.AddInt64(&s.enrollSeq, 1), 10)
 	}
 
 	s.mu.Lock()
 	resp := contract.EnrollResponse{
-		EdgeID:           edgeID,
-		CenterURL:        s.issuedCenterURL,
+		CCDirectID:       ccdirectID,
+		CCHubURL:         s.issuedCenterURL,
 		HeartbeatSeconds: s.issuedHeartbeat,
 		MaxFailover:      s.issuedMaxFailover,
 		Platforms:        append([]string(nil), s.issuedPlatforms...),

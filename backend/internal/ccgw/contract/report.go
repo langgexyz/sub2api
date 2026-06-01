@@ -16,8 +16,8 @@ type ReportItem struct {
 
 // ErrorReport is a batched anomaly report from one ccdirect node.
 type ErrorReport struct {
-	EdgeID string       `json:"edge_id"`
-	Items  []ReportItem `json:"items"`
+	CCDirectID string       `json:"ccdirect_id"`
+	Items      []ReportItem `json:"items"`
 }
 
 // ReportResponse acknowledges an anomaly report.

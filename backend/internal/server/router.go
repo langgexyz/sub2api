@@ -105,27 +105,27 @@ func registerRoutes(
 
 	// Distributed-edge control plane: edges call these to lease a real account
 	// (+ upstream token/endpoint) and settle it. Mounted off /edge to avoid
-	// colliding with the gateway's own /v1/* surface. h.EdgeCenter is always
+	// colliding with the gateway's own /v1/* surface. h.CCHub is always
 	// wired by wire, so no nil guard.
 	edge := r.Group("/edge/v1")
 	// Enforce mutual TLS on the edge control plane when a client CA is
-	// configured (EDGE_MTLS_CLIENT_CA) — only certificate-bearing edges may
+	// configured (CCDIRECT_MTLS_CLIENT_CA) — only certificate-bearing edges may
 	// lease tokens. No-op in dev (no CA).
-	if guard, err := handler.NewEdgeMTLSGuard(); err != nil {
+	if guard, err := handler.NewCCDirectMTLSGuard(); err != nil {
 		log.Fatalf("edge mTLS guard: %v", err)
 	} else if guard.Enabled() {
 		edge.Use(guard.Middleware())
 		log.Println("edge control plane: mTLS enforcement enabled")
 	}
-	edge.POST("/enroll", h.EdgeCenter.Enroll)
-	edge.GET("/config", h.EdgeCenter.Config)
-	edge.POST("/lease", h.EdgeCenter.Lease)
-	edge.POST("/settle", h.EdgeCenter.Settle)
-	edge.POST("/register", h.EdgeCenter.Register)
-	edge.POST("/heartbeat", h.EdgeCenter.Heartbeat)
-	edge.GET("/edges", h.EdgeCenter.Edges)
-	edge.POST("/report", h.EdgeCenter.Report)
-	edge.GET("/release", h.EdgeCenter.Release)
+	edge.POST("/enroll", h.CCHub.Enroll)
+	edge.GET("/config", h.CCHub.Config)
+	edge.POST("/lease", h.CCHub.Lease)
+	edge.POST("/settle", h.CCHub.Settle)
+	edge.POST("/register", h.CCHub.Register)
+	edge.POST("/heartbeat", h.CCHub.Heartbeat)
+	edge.GET("/edges", h.CCHub.Edges)
+	edge.POST("/report", h.CCHub.Report)
+	edge.GET("/release", h.CCHub.Release)
 
 	// API v1
 	v1 := r.Group("/api/v1")

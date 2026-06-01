@@ -328,8 +328,8 @@ export function isAuthenticated(): boolean {
 }
 
 /**
- * CLI-authorize request params (loopback + PKCE edge CLI login).
- * Mirrors the query params the edge puts in the browser URL.
+ * CLI-authorize request params (loopback + PKCE ccdirect CLI login).
+ * Mirrors the query params the ccdirect puts in the browser URL.
  */
 export interface AuthorizeCliRequest {
   response_type: string
@@ -343,14 +343,14 @@ export interface AuthorizeCliRequest {
 
 /**
  * CLI-authorize response: where the browser should be redirected so the
- * authorization code is handed to the edge's loopback server.
+ * authorization code is handed to the ccdirect's loopback server.
  */
 export interface AuthorizeCliResponse {
   redirect_to: string
 }
 
 /**
- * Authorize an edge CLI login (loopback + PKCE). The logged-in user approves
+ * Authorize a ccdirect CLI login (loopback + PKCE). The logged-in user approves
  * the requesting CLI; the backend mints a single-use authorization code and
  * returns the loopback redirect URL carrying it.
  */

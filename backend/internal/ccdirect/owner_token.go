@@ -79,7 +79,7 @@ func (e *Relay) refreshOwner(ctx context.Context) bool {
 	// The auth API lives under the center host at /api/v1/auth/refresh (the edge
 	// is configured with the center base ending in /edge; strip it to reach /api).
 	const refreshPath = "/api/v1/auth/refresh"
-	base := authBaseFromCenter(e.centerURL)
+	base := authBaseFromCenter(e.cchubURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+refreshPath, bytes.NewReader(body))
 	if err != nil {
 		return false
@@ -89,7 +89,7 @@ func (e *Relay) refreshOwner(ctx context.Context) bool {
 	// so cchub can verify against the bound pubkey before rotating. If no device
 	// key is present (not logged in / unbound), skip signing for back-compat.
 	signDeviceRequest(e.deviceKey, req, http.MethodPost, refreshPath, body)
-	resp, err := e.centerHTTP.Do(req)
+	resp, err := e.cchubHTTP.Do(req)
 	if err != nil {
 		return false
 	}
@@ -131,7 +131,7 @@ func (e *Relay) refreshOwner(ctx context.Context) bool {
 //	<TIMESTAMP>       // unix seconds
 //	<hex(sha256(body))>
 //
-// X-Ccdirect-Signature is base64(ed25519_sign(canonical)). A nil key is a no-op
+// X-CCDirect-Signature is base64(ed25519_sign(canonical)). A nil key is a no-op
 // (unbound / not logged in) so unbound refresh keeps working.
 func signDeviceRequest(key ed25519.PrivateKey, req *http.Request, method, path string, body []byte) {
 	if len(key) == 0 {
@@ -141,16 +141,16 @@ func signDeviceRequest(key ed25519.PrivateKey, req *http.Request, method, path s
 	bodySum := sha256.Sum256(body)
 	canonical := method + "\n" + path + "\n" + ts + "\n" + hex.EncodeToString(bodySum[:])
 	sig := ed25519.Sign(key, []byte(canonical))
-	req.Header.Set("X-Ccdirect-Timestamp", ts)
-	req.Header.Set("X-Ccdirect-Signature", base64.StdEncoding.EncodeToString(sig))
+	req.Header.Set("X-CCDirect-Timestamp", ts)
+	req.Header.Set("X-CCDirect-Signature", base64.StdEncoding.EncodeToString(sig))
 }
 
 // authBaseFromCenter strips a trailing "/edge" path segment from the center URL
 // so auth calls reach the sub2api API root.
-func authBaseFromCenter(centerURL string) string {
+func authBaseFromCenter(cchubURL string) string {
 	const suffix = "/edge"
-	if len(centerURL) >= len(suffix) && centerURL[len(centerURL)-len(suffix):] == suffix {
-		return centerURL[:len(centerURL)-len(suffix)]
+	if len(cchubURL) >= len(suffix) && cchubURL[len(cchubURL)-len(suffix):] == suffix {
+		return cchubURL[:len(cchubURL)-len(suffix)]
 	}
-	return centerURL
+	return cchubURL
 }

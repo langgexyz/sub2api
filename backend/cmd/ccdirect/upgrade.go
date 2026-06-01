@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // cchubReleasePubKey is cchub's base64 Ed25519 release-signing public key, baked
@@ -85,12 +85,12 @@ func checkAndUpgrade(ctx context.Context, cfg edgeFlags, selfPath string) (strin
 	return man.Version, nil
 }
 
-// fetchReleaseManifest GETs cchub's signed manifest for os/arch. centerURL is the
+// fetchReleaseManifest GETs cchub's signed manifest for os/arch. cchubURL is the
 // /edge base (as parseFlags produced + already HTTPS-checked).
-func fetchReleaseManifest(ctx context.Context, client *http.Client, centerURL, goos, goarch string) (contract.ReleaseManifest, error) {
+func fetchReleaseManifest(ctx context.Context, client *http.Client, cchubURL, goos, goarch string) (contract.ReleaseManifest, error) {
 	var m contract.ReleaseManifest
 	q := url.Values{"os": {goos}, "arch": {goarch}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, centerURL+"/v1/release?"+q.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cchubURL+"/v1/release?"+q.Encode(), nil)
 	if err != nil {
 		return m, err
 	}

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // This file holds in-memory, dependency-free implementations of the control
@@ -23,7 +23,7 @@ import (
 type AccountConfig struct {
 	ID              string              `json:"id"`
 	Platform        string              `json:"platform,omitempty"`
-	HomeEdgeID      string              `json:"home_edge_id,omitempty"`
+	HomeCCDirectID  string              `json:"home_ccdirect_id,omitempty"`
 	UpstreamBaseURL string              `json:"upstream_base_url"`
 	UpstreamToken   string              `json:"upstream_token"`            // the real upstream credential (never leaves the center as-is)
 	ModelMapping    map[string]string   `json:"model_mapping,omitempty"`   // requested -> upstream model
@@ -132,7 +132,7 @@ func (r *MemRegistry) Select(_ context.Context, req contract.LeaseRequest) ([]co
 		}
 		load := atomic.LoadInt64(r.inflight[a.ID])
 		affinity := 1
-		if req.EdgeID != "" && a.HomeEdgeID == req.EdgeID {
+		if req.CCDirectID != "" && a.HomeCCDirectID == req.CCDirectID {
 			affinity = 0
 		}
 		pool = append(pool, scored{acc: a, load: load, affinity: affinity})
@@ -157,7 +157,7 @@ func (r *MemRegistry) Select(_ context.Context, req contract.LeaseRequest) ([]co
 	for _, s := range pool {
 		candidates = append(candidates, contract.Candidate{
 			AccountID:       s.acc.ID,
-			HomeEdgeID:      s.acc.HomeEdgeID,
+			HomeCCDirectID:  s.acc.HomeCCDirectID,
 			Platform:        s.acc.Platform,
 			UpstreamBaseURL: s.acc.UpstreamBaseURL,
 			AuthScheme:      s.acc.AuthScheme,

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/enroll"
 )
 
 // control.go is the local control-plane between the interactive `edge` console
@@ -50,11 +50,11 @@ func controlSocketPath(sessionPath string) (string, error) {
 // console obtained from a loopback+PKCE login so the daemon can bring the relay
 // online without doing the browser dance itself.
 type controlRequest struct {
-	Cmd     string `json:"cmd"`
-	Access  string `json:"access,omitempty"`
-	Refresh string `json:"refresh,omitempty"`
-	EdgeID  string `json:"edge_id,omitempty"`
-	Secret  string `json:"secret,omitempty"`
+	Cmd        string `json:"cmd"`
+	Access     string `json:"access,omitempty"`
+	Refresh    string `json:"refresh,omitempty"`
+	CCDirectID string `json:"ccdirect_id,omitempty"`
+	Secret     string `json:"secret,omitempty"`
 }
 
 // controlResponse is the daemon's single reply. Status is populated for cmdStatus.
@@ -69,8 +69,8 @@ type controlResponse struct {
 type statusInfo struct {
 	LoggedIn      bool   `json:"logged_in"`
 	Owner         string `json:"owner,omitempty"`
-	EdgeID        string `json:"edge_id,omitempty"`
-	Center        string `json:"center"`
+	CCDirectID    string `json:"ccdirect_id,omitempty"`
+	CCHub         string `json:"cchub"`
 	Listen        string `json:"listen"`
 	Version       string `json:"version"`
 	AccessExpires string `json:"access_expires,omitempty"`

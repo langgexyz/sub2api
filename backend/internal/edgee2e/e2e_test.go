@@ -114,9 +114,9 @@ func newTestSystem(accounts []cchub.AccountConfig, maxPerKey int) *testSystem {
 	})
 	center := httptest.NewServer(cchub.NewServer(coord, registry, nil).Handler())
 	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{
-		EdgeID:    "edge-test",
-		CenterURL: center.URL,
-		Now:       time.Now,
+		CCDirectID: "edge-test",
+		CCHubURL:   center.URL,
+		Now:        time.Now,
 	}).Handler())
 	return &testSystem{center: center, edge: edge, usage: usage, admission: admission, registry: registry}
 }
@@ -163,7 +163,7 @@ func TestE2E_FullFlow_NonStream(t *testing.T) {
 
 	sys := newTestSystem([]cchub.AccountConfig{{
 		ID:              "acc-1",
-		HomeEdgeID:      "edge-test",
+		HomeCCDirectID:  "edge-test",
 		UpstreamBaseURL: upstream.URL,
 		UpstreamToken:   "real-upstream-token-1",
 		ModelMapping:    map[string]string{"claude-x": "upstream-y"},
@@ -210,7 +210,7 @@ func TestE2E_Streaming(t *testing.T) {
 	defer upstream.Close()
 
 	sys := newTestSystem([]cchub.AccountConfig{{
-		ID: "acc-1", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
+		ID: "acc-1", HomeCCDirectID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
 	}}, 0)
 	defer sys.close()
 
@@ -239,8 +239,8 @@ func TestE2E_LocalFailover(t *testing.T) {
 	// Two accounts, both for key-1/claude-x. Equal load => registry order =>
 	// acc-bad is primary, acc-good is failover.
 	sys := newTestSystem([]cchub.AccountConfig{
-		{ID: "acc-bad", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "bad-token"},
-		{ID: "acc-good", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "good-token"},
+		{ID: "acc-bad", HomeCCDirectID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "bad-token"},
+		{ID: "acc-good", HomeCCDirectID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "good-token"},
 	}, 0)
 	defer sys.close()
 
