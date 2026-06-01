@@ -45,8 +45,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/enroll"
 )
 
 // Version is set via -ldflags "-X main.Version=...".

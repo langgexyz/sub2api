@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // cchubReleasePubKey is cchub's base64 Ed25519 release-signing public key, baked

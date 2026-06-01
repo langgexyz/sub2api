@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // This file holds in-memory, dependency-free implementations of the control

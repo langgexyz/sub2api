@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
 )
 
 // Loopback + PKCE + device-key login client for the edge (ccdirect). authBase is

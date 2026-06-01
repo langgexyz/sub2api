@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/enroll"
 )
 
 // deviceKey is the edge's per-machine Ed25519 identity. The private key never

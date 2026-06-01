@@ -13,10 +13,10 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/quota"
 	"github.com/Wei-Shaw/sub2api/internal/cchub"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/quota"
 )
 
 // TestEgressViaEdge proves the center can run an outbound call (e.g. OAuth

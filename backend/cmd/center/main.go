@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgetls"
 	"github.com/Wei-Shaw/sub2api/internal/cchub"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgetls"
 )
 
 func main() {

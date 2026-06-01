@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
 )
 
 func newEnrollTestServer(t *testing.T) (*httptest.Server, *edgereg.Registry) {

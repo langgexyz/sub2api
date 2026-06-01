@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
 )
 
 // Server exposes the coordinator over HTTP: POST /v1/lease and
