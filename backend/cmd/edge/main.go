@@ -56,6 +56,10 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "daemon" {
+		runDaemonCommand(os.Args[2:])
+		return
+	}
 	runServe(os.Args[1:])
 }
 
@@ -69,19 +73,19 @@ type edgeApp struct {
 	sessionPath string
 	addr        string
 	deviceKey   deviceKey
+	cfg         edgeFlags
 }
 
-func runServe(args []string) {
-	cfg := parseFlags(args)
-
+// newEdgeApp builds the relay + app from cfg, loading any saved session (owner
+// token pair) and the per-machine device key. It does not start serving. Shared
+// by the interactive console (runServe) and the headless daemon (runDaemon).
+func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 	upstreamClient, err := edgegw.NewUpstreamClient(cfg.upstreamProxy, cfg.upstreamTimeout)
 	if err != nil {
-		log.Fatalf("edge: %v", err)
+		return nil, err
 	}
 	centerClient := &http.Client{Timeout: 15 * time.Second}
 
-	// Load any saved session (owner token pair). Everything else is fetched at
-	// login/startup.
 	sessionPath := cfg.statePath
 	if sessionPath == "" {
 		if p, perr := enroll.DefaultSessionPath(); perr == nil {
@@ -102,7 +106,7 @@ func runServe(args []string) {
 
 	cchubPubKey, err := contract.DecodeLivenessPubKey(cchubLivenessPubKey)
 	if err != nil {
-		log.Fatalf("edge: invalid embedded cchub liveness pubkey: %v", err)
+		return nil, fmt.Errorf("invalid embedded cchub liveness pubkey: %w", err)
 	}
 	if cchubPubKey == nil {
 		log.Printf("edge: WARNING: no cchub liveness key embedded — liveness enforcement disabled (dev build)")
@@ -128,6 +132,7 @@ func runServe(args []string) {
 		sessionPath: sessionPath,
 		addr:        cfg.addr,
 		deviceKey:   dk,
+		cfg:         cfg,
 	}
 	// Persist rotated tokens (login + auto-refresh) so a restart keeps the
 	// session. Empty pair clears the file (logout).
@@ -136,6 +141,46 @@ func runServe(args []string) {
 			log.Printf("edge: warning: could not save session: %v", serr)
 		}
 	})
+	return app, nil
+}
+
+// startServing brings a logged-in relay online (fetch config), starts the HTTP
+// server and heartbeat loop, and returns the server for later shutdown. Neither
+// goroutine blocks the caller. Shared by console and daemon.
+func (app *edgeApp) startServing(ctx context.Context) *http.Server {
+	// If we already have a session on disk, bring the relay online (fetch config
+	// using the saved/refreshed access token) before serving.
+	if app.relay.LoggedIn() {
+		if err := app.activate(ctx); err != nil {
+			log.Printf("edge: saved session not usable (%v); run /login", err)
+		}
+	}
+	srv := &http.Server{Addr: app.addr, Handler: app.relay.Handler(), ReadHeaderTimeout: 15 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("edge: %v", err)
+		}
+	}()
+	go app.relay.RunHeartbeat(ctx, app.cfg.egressIP, splitCSV(app.cfg.platforms), app.cfg.heartbeat)
+	return srv
+}
+
+// shutdownServer drains in-flight requests up to a timeout. Used on console quit,
+// daemon SIGTERM, and before a self-update binary swap.
+func shutdownServer(srv *http.Server) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("edge: shutdown error: %v", err)
+	}
+}
+
+func runServe(args []string) {
+	cfg := parseFlags(args)
+	app, err := newEdgeApp(cfg)
+	if err != nil {
+		log.Fatalf("edge: %v", err)
+	}
 
 	egressLabel := cfg.upstreamProxy
 	if egressLabel == "" {
@@ -145,25 +190,10 @@ func runServe(args []string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	// If we already have a session on disk, bring the relay online (fetch config
-	// using the saved/refreshed access token) before serving.
-	if relay.LoggedIn() {
-		if err := app.activate(ctx); err != nil {
-			log.Printf("edge: saved session not usable (%v); run /login", err)
-		}
-	}
-
-	srv := &http.Server{Addr: cfg.addr, Handler: relay.Handler(), ReadHeaderTimeout: 15 * time.Second}
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("edge: %v", err)
-		}
-	}()
-	go relay.RunHeartbeat(ctx, cfg.egressIP, splitCSV(cfg.platforms), cfg.heartbeat)
+	srv := app.startServing(ctx)
 
 	// If not logged in, kick off login immediately (like claude code's first run).
-	if !relay.LoggedIn() {
+	if !app.relay.LoggedIn() {
 		fmt.Println("Not logged in. Starting login…")
 		if err := app.doLogin(ctx); err != nil {
 			fmt.Printf("login failed: %v\n", err)
@@ -181,11 +211,7 @@ func runServe(args []string) {
 	}
 	log.Printf("edge: shutting down")
 	cancel()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("edge: shutdown error: %v", err)
-	}
+	shutdownServer(srv)
 }
 
 // activate fetches the edge config with the current access token (refreshing
