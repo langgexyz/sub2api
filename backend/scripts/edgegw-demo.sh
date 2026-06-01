@@ -12,7 +12,7 @@ OUT=bin/edgegw-demo
 mkdir -p "$OUT"
 
 CENTER_ADDR=127.0.0.1:9000
-EDGE_ADDR=127.0.0.1:8088
+CCDIRECT_ADDR=127.0.0.1:8088
 MOCK_ADDR=127.0.0.1:9100
 
 echo "info: building binaries"
@@ -44,10 +44,10 @@ trap cleanup EXIT
 
 "$OUT/mockupstream" -addr "$MOCK_ADDR" & pids+=($!)
 "$OUT/center" -addr "$CENTER_ADDR" -accounts "$OUT/accounts.json" -max-per-key 4 & pids+=($!)
-"$OUT/edge" -addr "$EDGE_ADDR" -center "http://${CENTER_ADDR}" -edge-id edge-local & pids+=($!)
+"$OUT/edge" -addr "$CCDIRECT_ADDR" -center "http://${CENTER_ADDR}" -edge-id edge-local & pids+=($!)
 
 # Wait for health.
-for url in "http://${CENTER_ADDR}/healthz" "http://${EDGE_ADDR}/healthz"; do
+for url in "http://${CENTER_ADDR}/healthz" "http://${CCDIRECT_ADDR}/healthz"; do
   for _ in $(seq 1 50); do
     if curl -fsS "$url" >/dev/null 2>&1; then break; fi
     sleep 0.1
@@ -56,14 +56,14 @@ done
 
 echo
 echo "info: === non-streaming request through the edge ==="
-curl -sS -X POST "http://${EDGE_ADDR}/v1/messages" \
+curl -sS -X POST "http://${CCDIRECT_ADDR}/v1/messages" \
   -H 'Content-Type: application/json' \
   -H 'x-api-key: key-1' \
   -d '{"model":"claude-x","stream":false,"messages":[{"role":"user","content":"hi"}]}'
 echo
 echo
 echo "info: === streaming request through the edge ==="
-curl -sS -N -X POST "http://${EDGE_ADDR}/v1/messages" \
+curl -sS -N -X POST "http://${CCDIRECT_ADDR}/v1/messages" \
   -H 'Content-Type: application/json' \
   -H 'x-api-key: key-1' \
   -d '{"model":"claude-x","stream":true,"messages":[{"role":"user","content":"hi"}]}'

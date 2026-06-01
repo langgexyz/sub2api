@@ -72,7 +72,7 @@ func newGuardWithCA(t *testing.T, caPEM []byte) *EdgeMTLSGuard {
 	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("EDGE_MTLS_CLIENT_CA", caPath)
+	t.Setenv("CCDIRECT_MTLS_CLIENT_CA", caPath)
 	g, err := NewEdgeMTLSGuard()
 	if err != nil {
 		t.Fatalf("guard: %v", err)
@@ -94,7 +94,7 @@ func runGuard(g *EdgeMTLSGuard, setup func(*http.Request)) int {
 }
 
 func TestEdgeMTLSGuard_Disabled_NoCA(t *testing.T) {
-	t.Setenv("EDGE_MTLS_CLIENT_CA", "")
+	t.Setenv("CCDIRECT_MTLS_CLIENT_CA", "")
 	g, err := NewEdgeMTLSGuard()
 	if err != nil {
 		t.Fatal(err)

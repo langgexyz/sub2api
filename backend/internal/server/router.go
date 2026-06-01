@@ -109,7 +109,7 @@ func registerRoutes(
 	// wired by wire, so no nil guard.
 	edge := r.Group("/edge/v1")
 	// Enforce mutual TLS on the edge control plane when a client CA is
-	// configured (EDGE_MTLS_CLIENT_CA) — only certificate-bearing edges may
+	// configured (CCDIRECT_MTLS_CLIENT_CA) — only certificate-bearing edges may
 	// lease tokens. No-op in dev (no CA).
 	if guard, err := handler.NewEdgeMTLSGuard(); err != nil {
 		log.Fatalf("edge mTLS guard: %v", err)

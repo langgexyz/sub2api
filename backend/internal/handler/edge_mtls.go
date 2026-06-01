@@ -11,7 +11,7 @@ import (
 )
 
 // EdgeMTLSGuard enforces mutual TLS on the edge control-plane routes
-// (/edge/v1/*). When an edge client CA is configured (EDGE_MTLS_CLIENT_CA file),
+// (/edge/v1/*). When an edge client CA is configured (CCDIRECT_MTLS_CLIENT_CA file),
 // every request to these routes must present a client certificate that verifies
 // against that CA — narrowing "who can obtain a lease token" from "anyone who
 // can reach /edge/v1/lease" to "a node holding a center-issued edge certificate"
@@ -33,9 +33,9 @@ type EdgeMTLSGuard struct {
 // URL-escaped). nginx: proxy_set_header X-Edge-Client-Cert $ssl_client_escaped_cert;
 const clientCertHeader = "X-Edge-Client-Cert"
 
-// NewEdgeMTLSGuard loads the edge client CA from EDGE_MTLS_CLIENT_CA if set.
+// NewEdgeMTLSGuard loads the edge client CA from CCDIRECT_MTLS_CLIENT_CA if set.
 func NewEdgeMTLSGuard() (*EdgeMTLSGuard, error) {
-	path := os.Getenv("EDGE_MTLS_CLIENT_CA")
+	path := os.Getenv("CCDIRECT_MTLS_CLIENT_CA")
 	if path == "" {
 		return &EdgeMTLSGuard{}, nil
 	}
