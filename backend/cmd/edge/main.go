@@ -44,7 +44,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/enroll"
 )
@@ -79,7 +79,7 @@ func main() {
 // edgeApp holds the running relay + the bits the console needs to log in/out and
 // persist credentials.
 type edgeApp struct {
-	relay       *edgegw.EdgeRelay
+	relay       *ccdirect.Relay
 	centerEdge  string // center edge control-plane base, e.g. http://host:8080/edge
 	authBase    string // sub2api API root, e.g. http://host:8080
 	httpClient  *http.Client
@@ -106,7 +106,7 @@ func resolveSessionPath(cfg edgeFlags) string {
 // token pair) and the per-machine device key. It does not start serving. Shared
 // by the interactive console (runServe) and the headless daemon (runDaemon).
 func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
-	upstreamClient, err := edgegw.NewUpstreamClient(cfg.upstreamProxy, cfg.upstreamTimeout)
+	upstreamClient, err := ccdirect.NewUpstreamClient(cfg.upstreamProxy, cfg.upstreamTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 		log.Printf("edge: WARNING: no cchub liveness key embedded — liveness enforcement disabled (dev build)")
 	}
 
-	relay := edgegw.NewEdgeRelay(edgegw.EdgeConfig{
+	relay := ccdirect.NewRelay(ccdirect.Config{
 		InternalKey:       cfg.internalKey,
 		OwnerAccessToken:  sess.OwnerAccess,
 		OwnerRefreshToken: sess.OwnerRefresh,

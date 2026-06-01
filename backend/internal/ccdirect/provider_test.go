@@ -1,12 +1,14 @@
 //go:build unit
 
-package edgegw
+package ccdirect
 
 import (
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 func TestProviderFor_Resolution(t *testing.T) {
@@ -71,14 +73,14 @@ func TestAuthScheme_Apply(t *testing.T) {
 
 	// default -> Authorization: Bearer
 	r := mkReq()
-	applyAuthScheme(AuthScheme{}, r, "tok")
+	applyAuthScheme(contract.AuthScheme{}, r, "tok")
 	if r.Header.Get("Authorization") != "Bearer tok" {
 		t.Fatalf("default auth: %q", r.Header.Get("Authorization"))
 	}
 
 	// anthropic-style x-api-key + version
 	r = mkReq()
-	applyAuthScheme(AuthScheme{Header: "x-api-key", Extra: map[string]string{"anthropic-version": "2023-06-01"}}, r, "sk-1")
+	applyAuthScheme(contract.AuthScheme{Header: "x-api-key", Extra: map[string]string{"anthropic-version": "2023-06-01"}}, r, "sk-1")
 	if r.Header.Get("x-api-key") != "sk-1" || r.Header.Get("anthropic-version") != "2023-06-01" {
 		t.Fatalf("x-api-key scheme wrong: %v", r.Header)
 	}
@@ -88,7 +90,7 @@ func TestAuthScheme_Apply(t *testing.T) {
 
 	// gemini-style key query param
 	r = mkReq()
-	applyAuthScheme(AuthScheme{QueryParam: "key"}, r, "g-1")
+	applyAuthScheme(contract.AuthScheme{QueryParam: "key"}, r, "g-1")
 	if r.URL.Query().Get("key") != "g-1" {
 		t.Fatalf("gemini query auth: %q", r.URL.RawQuery)
 	}

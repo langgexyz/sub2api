@@ -1,16 +1,18 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // Provider captures the per-platform protocol differences the edge must honor
 // to support every upstream: where the model name lives (request body vs URL
 // path) and how to read token usage out of the response. Auth is data-driven
-// via AuthScheme (carried per account), so even within a platform an OAuth
+// via contract.AuthScheme (carried per account), so even within a platform an OAuth
 // account and an API-key account can present credentials differently.
 type Provider interface {
 	Name() string
@@ -22,13 +24,13 @@ type Provider interface {
 	NewUsageParser(stream bool) UsageParser
 }
 
-// AuthScheme is defined in the shared contract package (data only). The
+// contract.AuthScheme is defined in the shared contract package (data only). The
 // HTTP-applying behavior stays here (edge side) as a free function since the
 // contract package must not depend on net/http.
 
 // applyAuthScheme presents token on req per the scheme. Zero value means
 // "Authorization: Bearer <token>".
-func applyAuthScheme(a AuthScheme, req *http.Request, token string) {
+func applyAuthScheme(a contract.AuthScheme, req *http.Request, token string) {
 	if a.Header == "" && a.QueryParam == "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	} else {

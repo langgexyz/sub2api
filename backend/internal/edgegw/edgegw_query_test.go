@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
 )
 
 // TestE2E_ForwardsQueryString proves the edge preserves the client's query
@@ -33,7 +35,7 @@ func TestE2E_ForwardsQueryString(t *testing.T) {
 	})
 	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
 	defer center.Close()
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{EdgeID: "e", CenterURL: center.URL, Now: time.Now}).Handler())
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{EdgeID: "e", CenterURL: center.URL, Now: time.Now}).Handler())
 	defer edge.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, edge.URL+"/v1/messages?beta=true",

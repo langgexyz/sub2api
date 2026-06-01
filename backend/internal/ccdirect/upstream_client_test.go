@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package ccdirect
 
 import (
 	"net/http"

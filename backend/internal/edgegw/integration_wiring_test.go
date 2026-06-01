@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/quota"
 )
@@ -28,15 +29,15 @@ func TestEgressViaEdge(t *testing.T) {
 	}))
 	defer target.Close()
 
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{EdgeID: "edge-1", CenterURL: "http://unused", InternalKey: "secret"}).Handler())
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{EdgeID: "edge-1", CenterURL: "http://unused", InternalKey: "secret"}).Handler())
 	defer edge.Close()
 
 	// Wrong/missing internal key is rejected (SSRF gate).
-	if _, err := EgressVia(context.Background(), http.DefaultClient, edge.URL, "wrong", EgressRequest{Method: http.MethodPost, URL: target.URL}); err == nil {
+	if _, err := ccdirect.EgressVia(context.Background(), http.DefaultClient, edge.URL, "wrong", ccdirect.EgressRequest{Method: http.MethodPost, URL: target.URL}); err == nil {
 		t.Fatalf("egress with wrong internal key must be rejected")
 	}
 
-	resp, err := EgressVia(context.Background(), http.DefaultClient, edge.URL, "secret", EgressRequest{
+	resp, err := ccdirect.EgressVia(context.Background(), http.DefaultClient, edge.URL, "secret", ccdirect.EgressRequest{
 		Method: http.MethodPost,
 		URL:    target.URL + "/oauth/token",
 		Header: map[string]string{"Authorization": "Bearer refresh-tok"},

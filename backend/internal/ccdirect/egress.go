@@ -1,4 +1,4 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
@@ -41,7 +41,7 @@ const maxEgressResponseBytes = 1 << 20 // 1 MiB cap for control-plane responses 
 // handleEgress executes the requested outbound call through this edge's egress
 // client and returns the captured response. Mounted at POST /internal/egress
 // (mTLS-restricted to the center in production).
-func (e *EdgeRelay) handleEgress(w http.ResponseWriter, r *http.Request) {
+func (e *Relay) handleEgress(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return

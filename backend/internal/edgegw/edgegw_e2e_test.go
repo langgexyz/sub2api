@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
 )
 
 // mockUpstream emulates an upstream provider (Anthropic-shaped). Behavior is
@@ -42,7 +44,7 @@ func (m *mockUpstream) hits() []upstreamHit {
 
 func (m *mockUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
-	model, stream := parseModelStream(body)
+	model, stream := ccdirect.ParseModelStream(body)
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
 	m.mu.Lock()
@@ -110,7 +112,7 @@ func newTestSystem(accounts []AccountConfig, maxPerKey int) *testSystem {
 		Now:       fixedClock(),
 	})
 	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{
 		EdgeID:    "edge-test",
 		CenterURL: center.URL,
 		Now:       time.Now,

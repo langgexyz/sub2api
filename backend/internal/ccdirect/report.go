@@ -1,4 +1,4 @@
-package edgegw
+package ccdirect
 
 import (
 	"bytes"
@@ -67,13 +67,13 @@ func (a *anomalyReporter) drain() []contract.ReportItem {
 }
 
 // reportAnomaly records one anomaly for the next batched report to cchub.
-func (e *EdgeRelay) reportAnomaly(kind, message string) {
+func (e *Relay) reportAnomaly(kind, message string) {
 	e.reporter.record(kind, message)
 }
 
 // reportPanic records a recovered panic; kept separate so the panic-recovery
 // defer in relay() needs no fmt import of its own.
-func (e *EdgeRelay) reportPanic(rec any) {
+func (e *Relay) reportPanic(rec any) {
 	e.reporter.record("panic_recovered", fmt.Sprintf("%v", rec))
 }
 
@@ -81,7 +81,7 @@ func (e *EdgeRelay) reportPanic(rec any) {
 // the buffer. No-op when nothing is buffered or the edge is logged out (no edge
 // id yet). Best-effort: a failed send drops this window rather than blocking the
 // heartbeat loop. centerURL already includes the /edge prefix (see Register).
-func (e *EdgeRelay) flushReport(ctx context.Context) {
+func (e *Relay) flushReport(ctx context.Context) {
 	items := e.reporter.drain()
 	if len(items) == 0 {
 		return

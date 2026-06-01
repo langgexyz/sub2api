@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // Loopback + PKCE + device-key login client for the edge (ccdirect). authBase is
@@ -210,24 +210,24 @@ func buildAuthorizeURL(centerWebBase, challenge, redirectURI, state, devicePubB6
 
 // fetchConfig calls GET /edge/v1/config with the owner JWT and returns the
 // center-issued edge config (seal secret, edge id, platforms, …).
-func fetchConfig(ctx context.Context, hc *http.Client, centerEdge, access string) (edgegw.EnrollResponse, error) {
+func fetchConfig(ctx context.Context, hc *http.Client, centerEdge, access string) (contract.EnrollResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(centerEdge, "/")+"/v1/config", nil)
 	if err != nil {
-		return edgegw.EnrollResponse{}, err
+		return contract.EnrollResponse{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+access)
 	resp, err := hc.Do(req)
 	if err != nil {
-		return edgegw.EnrollResponse{}, err
+		return contract.EnrollResponse{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return edgegw.EnrollResponse{}, fmt.Errorf("config status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+		return contract.EnrollResponse{}, fmt.Errorf("config status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
-	var out edgegw.EnrollResponse
+	var out contract.EnrollResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return edgegw.EnrollResponse{}, err
+		return contract.EnrollResponse{}, err
 	}
 	return out, nil
 }

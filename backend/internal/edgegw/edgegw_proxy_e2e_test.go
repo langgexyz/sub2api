@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
 )
 
 // recordingProxy is a minimal forward proxy: for plaintext (http) targets the
@@ -87,11 +89,11 @@ func TestE2E_EgressThroughProxy(t *testing.T) {
 	defer center.Close()
 
 	// Edge whose upstream client egresses through the recording proxy.
-	upstreamClient, err := NewUpstreamClient(proxySrv.URL, 10*time.Second)
+	upstreamClient, err := ccdirect.NewUpstreamClient(proxySrv.URL, 10*time.Second)
 	if err != nil {
 		t.Fatalf("build upstream client: %v", err)
 	}
-	edge := httptest.NewServer(NewEdgeRelay(EdgeConfig{
+	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{
 		EdgeID:    "edge-test",
 		CenterURL: center.URL,
 		Upstream:  upstreamClient,
