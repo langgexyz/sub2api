@@ -113,7 +113,7 @@ require (
 	github.com/icholy/digest v1.1.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
-	github.com/langgexyz/ccgw v0.0.0-20260601071623-29c054bca5cd
+	github.com/langgexyz/ccgw v0.0.0-20260601080026-46f6ac8e48d4
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
