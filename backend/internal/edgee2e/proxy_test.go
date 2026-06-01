@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package edgee2e
 
 import (
 	"io"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 
 // recordingProxy is a minimal forward proxy: for plaintext (http) targets the
@@ -73,19 +74,19 @@ func TestE2E_EgressThroughProxy(t *testing.T) {
 	defer proxySrv.Close()
 
 	// Center with one account whose upstream is the mock.
-	registry := NewMemRegistry([]AccountConfig{{
+	registry := cchub.NewMemRegistry([]cchub.AccountConfig{{
 		ID: "acc-1", HomeEdgeID: "edge-test", UpstreamBaseURL: upstream.URL, UpstreamToken: "tok-1",
 	}})
-	usage := NewMemUsageSink()
-	coord := NewCoordinator(Config{
-		Admission: NewMemAdmission(0),
+	usage := cchub.NewMemUsageSink()
+	coord := cchub.NewCoordinator(cchub.Config{
+		Admission: cchub.NewMemAdmission(0),
 		Scheduler: registry,
-		Sticky:    NewMemSticky(),
+		Sticky:    cchub.NewMemSticky(),
 		Usage:     usage,
-		Minter:    NewHMACMinter(registry, []byte("s"), fixedClock()),
+		Minter:    cchub.NewHMACMinter(registry, []byte("s"), fixedClock()),
 		Now:       fixedClock(),
 	})
-	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
+	center := httptest.NewServer(cchub.NewServer(coord, registry, nil).Handler())
 	defer center.Close()
 
 	// Edge whose upstream client egresses through the recording proxy.

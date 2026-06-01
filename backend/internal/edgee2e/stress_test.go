@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package edgee2e
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 
 // flakyUpstream simulates network turbulence per account (keyed on bearer):
@@ -90,7 +92,7 @@ func fire(edgeURL, apiKey string) int {
 }
 
 // waitNoInflight polls until the api key has zero in-flight slots or times out.
-func waitNoInflight(t *testing.T, adm *MemAdmission, apiKey string) {
+func waitNoInflight(t *testing.T, adm *cchub.MemAdmission, apiKey string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -107,7 +109,7 @@ func waitNoInflight(t *testing.T, adm *MemAdmission, apiKey string) {
 func TestConcurrency_NoSlotLeak(t *testing.T) {
 	up := httptest.NewServer(&flakyUpstream{})
 	defer up.Close()
-	sys := newTestSystem([]AccountConfig{{
+	sys := newTestSystem([]cchub.AccountConfig{{
 		ID: "acc-1", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "good", MaxConcurrency: 0,
 	}}, 0)
 	defer sys.close()
@@ -140,7 +142,7 @@ func TestConcurrency_NoSlotLeak(t *testing.T) {
 func TestStability_SustainedSequential(t *testing.T) {
 	up := httptest.NewServer(&flakyUpstream{})
 	defer up.Close()
-	sys := newTestSystem([]AccountConfig{{
+	sys := newTestSystem([]cchub.AccountConfig{{
 		ID: "acc-1", Platform: "anthropic", UpstreamBaseURL: up.URL, UpstreamToken: "good",
 	}}, 0)
 	defer sys.close()
@@ -171,7 +173,7 @@ func TestNetworkFluctuation_FailoverReachesGood(t *testing.T) {
 	up := httptest.NewServer(fu)
 	defer up.Close()
 
-	sys := newTestSystem([]AccountConfig{
+	sys := newTestSystem([]cchub.AccountConfig{
 		{ID: "acc-bad1", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "bad1"},
 		{ID: "acc-bad2", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "bad2"},
 		{ID: "acc-good", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "good"},
@@ -212,7 +214,7 @@ func TestNetworkFluctuation_AllDown_CleanFailNoLeak(t *testing.T) {
 	up := httptest.NewServer(fu)
 	defer up.Close()
 
-	sys := newTestSystem([]AccountConfig{
+	sys := newTestSystem([]cchub.AccountConfig{
 		{ID: "a1", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "d1"},
 		{ID: "a2", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "d2"},
 		{ID: "a3", Platform: "openai", UpstreamBaseURL: up.URL, UpstreamToken: "d3"},

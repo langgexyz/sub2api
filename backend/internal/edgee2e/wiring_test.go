@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package edgee2e
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/quota"
 )
@@ -60,10 +62,10 @@ func TestEgressViaEdge(t *testing.T) {
 // TestCenterRegisterHeartbeatEnroll covers the edge-fleet endpoints and the
 // enroll-key gate.
 func TestCenterRegisterHeartbeatEnroll(t *testing.T) {
-	registry := NewMemRegistry(nil)
-	coord := NewCoordinator(Config{Admission: NewMemAdmission(0), Scheduler: registry, Usage: NewMemUsageSink()})
+	registry := cchub.NewMemRegistry(nil)
+	coord := cchub.NewCoordinator(cchub.Config{Admission: cchub.NewMemAdmission(0), Scheduler: registry, Usage: cchub.NewMemUsageSink()})
 	edges := edgereg.New(time.Minute, time.Now)
-	cs := NewCenterServer(coord, registry, edges)
+	cs := cchub.NewServer(coord, registry, edges)
 	cs.SetEnrollKeys([]string{"good-key"})
 	srv := httptest.NewServer(cs.Handler())
 	defer srv.Close()
@@ -79,21 +81,21 @@ func TestCenterRegisterHeartbeatEnroll(t *testing.T) {
 	}
 
 	// Wrong enroll key is rejected.
-	if code := post("/v1/register", RegisterRequest{EdgeID: "e1", EnrollKey: "bad", EgressIP: "1.2.3.4"}); code != http.StatusUnauthorized {
+	if code := post("/v1/register", contract.RegisterRequest{EdgeID: "e1", EnrollKey: "bad", EgressIP: "1.2.3.4"}); code != http.StatusUnauthorized {
 		t.Fatalf("bad enroll key: want 401, got %d", code)
 	}
 	// Correct enroll key registers.
-	if code := post("/v1/register", RegisterRequest{EdgeID: "e1", EnrollKey: "good-key", EgressIP: "1.2.3.4", Platforms: []string{"openai"}}); code != http.StatusOK {
+	if code := post("/v1/register", contract.RegisterRequest{EdgeID: "e1", EnrollKey: "good-key", EgressIP: "1.2.3.4", Platforms: []string{"openai"}}); code != http.StatusOK {
 		t.Fatalf("good enroll key: want 200, got %d", code)
 	}
 	if !edges.IsLive("e1") {
 		t.Fatalf("e1 should be live after register")
 	}
 	// Heartbeat known/unknown.
-	if code := post("/v1/heartbeat", HeartbeatRequest{EdgeID: "e1"}); code != http.StatusOK {
+	if code := post("/v1/heartbeat", contract.HeartbeatRequest{EdgeID: "e1"}); code != http.StatusOK {
 		t.Fatalf("heartbeat known: want 200, got %d", code)
 	}
-	if code := post("/v1/heartbeat", HeartbeatRequest{EdgeID: "ghost"}); code != http.StatusNotFound {
+	if code := post("/v1/heartbeat", contract.HeartbeatRequest{EdgeID: "ghost"}); code != http.StatusNotFound {
 		t.Fatalf("heartbeat unknown: want 404, got %d", code)
 	}
 	// /v1/edges lists the live edge.
@@ -114,25 +116,25 @@ func TestCenterRegisterHeartbeatEnroll(t *testing.T) {
 func TestCoordinatorQuotaReserveReconcile(t *testing.T) {
 	ledger := quota.New()
 	ledger.SetBalance("k", 100)
-	registry := NewMemRegistry([]AccountConfig{{ID: "a", Platform: "openai", UpstreamBaseURL: "http://x", UpstreamToken: "t"}})
-	co := NewCoordinator(Config{
-		Admission:     NewMemAdmission(0),
+	registry := cchub.NewMemRegistry([]cchub.AccountConfig{{ID: "a", Platform: "openai", UpstreamBaseURL: "http://x", UpstreamToken: "t"}})
+	co := cchub.NewCoordinator(cchub.Config{
+		Admission:     cchub.NewMemAdmission(0),
 		Scheduler:     registry,
-		Usage:         NewMemUsageSink(),
+		Usage:         cchub.NewMemUsageSink(),
 		Quota:         ledger,
 		LeaseEstimate: 5,
-		CostFunc:      func(SettleRequest) float64 { return 2 },
+		CostFunc:      func(contract.SettleRequest) float64 { return 2 },
 		Now:           fixedClock(),
 	})
 
-	lease, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1", EdgeID: "e"})
+	lease, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1", EdgeID: "e"})
 	if err != nil {
 		t.Fatalf("lease: %v", err)
 	}
 	if ledger.Balance("k") != 95 {
 		t.Fatalf("after reserve want balance 95, got %v", ledger.Balance("k"))
 	}
-	if _, err := co.Settle(context.Background(), SettleRequest{RequestID: "r1", APIKey: "k", AccountID: "a", SlotID: lease.SlotID, StatusCode: 200}); err != nil {
+	if _, err := co.Settle(context.Background(), contract.SettleRequest{RequestID: "r1", APIKey: "k", AccountID: "a", SlotID: lease.SlotID, StatusCode: 200}); err != nil {
 		t.Fatalf("settle: %v", err)
 	}
 	// reserved 5, actual 2 -> refund 3 -> balance 98.
@@ -149,14 +151,14 @@ func TestCoordinatorQuotaReserveReconcile(t *testing.T) {
 func TestCoordinatorQuotaRefundOnFailedLease(t *testing.T) {
 	ledger := quota.New()
 	ledger.SetBalance("k", 100)
-	co := NewCoordinator(Config{
-		Admission:     NewMemAdmission(0),
-		Scheduler:     NewMemRegistry(nil), // no accounts -> ErrNoAccount
-		Usage:         NewMemUsageSink(),
+	co := cchub.NewCoordinator(cchub.Config{
+		Admission:     cchub.NewMemAdmission(0),
+		Scheduler:     cchub.NewMemRegistry(nil), // no accounts -> contract.ErrNoAccount
+		Usage:         cchub.NewMemUsageSink(),
 		Quota:         ledger,
 		LeaseEstimate: 7,
 	})
-	if _, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1"}); err == nil {
+	if _, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1"}); err == nil {
 		t.Fatalf("expected lease to fail with no account")
 	}
 	if ledger.Balance("k") != 100 {
@@ -167,11 +169,11 @@ func TestCoordinatorQuotaRefundOnFailedLease(t *testing.T) {
 // TestSchedulerEdgeAffinity verifies accounts homed on the requesting edge are
 // ranked first.
 func TestSchedulerEdgeAffinity(t *testing.T) {
-	registry := NewMemRegistry([]AccountConfig{
+	registry := cchub.NewMemRegistry([]cchub.AccountConfig{
 		{ID: "a-edgeA", Platform: "openai", HomeEdgeID: "edgeA", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
 		{ID: "a-edgeB", Platform: "openai", HomeEdgeID: "edgeB", UpstreamBaseURL: "http://x", UpstreamToken: "t"},
 	})
-	cands, err := registry.Select(context.Background(), LeaseRequest{APIKey: "k", Model: "m", EdgeID: "edgeB"})
+	cands, err := registry.Select(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", EdgeID: "edgeB"})
 	if err != nil {
 		t.Fatalf("select: %v", err)
 	}

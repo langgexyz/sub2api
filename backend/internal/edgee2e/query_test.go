@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package edgee2e
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
+	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 
 // TestE2E_ForwardsQueryString proves the edge preserves the client's query
@@ -26,14 +27,14 @@ func TestE2E_ForwardsQueryString(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	registry := NewMemRegistry([]AccountConfig{{
+	registry := cchub.NewMemRegistry([]cchub.AccountConfig{{
 		ID: "a", Platform: "anthropic", UpstreamBaseURL: upstream.URL, UpstreamToken: "t",
 	}})
-	coord := NewCoordinator(Config{
-		Admission: NewMemAdmission(0), Scheduler: registry, Sticky: NewMemSticky(),
-		Usage: NewMemUsageSink(), Minter: NewHMACMinter(registry, []byte("s"), fixedClock()), Now: fixedClock(),
+	coord := cchub.NewCoordinator(cchub.Config{
+		Admission: cchub.NewMemAdmission(0), Scheduler: registry, Sticky: cchub.NewMemSticky(),
+		Usage: cchub.NewMemUsageSink(), Minter: cchub.NewHMACMinter(registry, []byte("s"), fixedClock()), Now: fixedClock(),
 	})
-	center := httptest.NewServer(NewCenterServer(coord, registry, nil).Handler())
+	center := httptest.NewServer(cchub.NewServer(coord, registry, nil).Handler())
 	defer center.Close()
 	edge := httptest.NewServer(ccdirect.NewRelay(ccdirect.Config{EdgeID: "e", CenterURL: center.URL, Now: time.Now}).Handler())
 	defer edge.Close()

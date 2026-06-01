@@ -1,4 +1,4 @@
-package edgegw
+package cchub
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strconv"
 	"sync/atomic"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // Enrollment turns one user-supplied token into a fully-configured edge: the
@@ -13,11 +15,11 @@ import (
 // parameters (heartbeat interval, failover count, platforms) so the edge needs
 // no local flags beyond the token. See cmd/edge and internal/edgegw/enroll.
 
-// EnrollRequest / EnrollResponse moved to the shared contract package (aliased
+// contract.EnrollRequest / contract.EnrollResponse moved to the shared contract package (aliased
 // in contract.go) — both ccdirect and cchub use them.
 
 // SetEnrollConfig sets the parameters the center issues to edges at enroll time.
-func (s *CenterServer) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFailover int, platforms []string) {
+func (s *Server) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFailover int, platforms []string) {
 	s.mu.Lock()
 	s.issuedCenterURL = centerURL
 	s.issuedHeartbeat = heartbeatSeconds
@@ -26,12 +28,12 @@ func (s *CenterServer) SetEnrollConfig(centerURL string, heartbeatSeconds, maxFa
 	s.mu.Unlock()
 }
 
-func (s *CenterServer) handleEnroll(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req EnrollRequest
+	var req contract.EnrollRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "decode enroll request: "+err.Error())
 		return
@@ -47,7 +49,7 @@ func (s *CenterServer) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	resp := EnrollResponse{
+	resp := contract.EnrollResponse{
 		EdgeID:           edgeID,
 		CenterURL:        s.issuedCenterURL,
 		HeartbeatSeconds: s.issuedHeartbeat,

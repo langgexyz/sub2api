@@ -1,6 +1,6 @@
 //go:build unit
 
-package edgegw
+package cchub
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 )
 
 // --- fakes ---
@@ -42,17 +44,17 @@ type fakeBilling struct{ err error }
 func (f *fakeBilling) CheckEligibility(_ context.Context, _, _ string) error { return f.err }
 
 type fakeScheduler struct {
-	candidates []Candidate
+	candidates []contract.Candidate
 	err        error
 	calls      int
 }
 
-func (f *fakeScheduler) Select(_ context.Context, _ LeaseRequest) ([]Candidate, error) {
+func (f *fakeScheduler) Select(_ context.Context, _ contract.LeaseRequest) ([]contract.Candidate, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
-	return append([]Candidate(nil), f.candidates...), nil
+	return append([]contract.Candidate(nil), f.candidates...), nil
 }
 
 type fakeSticky struct {
@@ -70,10 +72,10 @@ func (f *fakeSticky) Bind(_ context.Context, _, accountID string) {
 
 type fakeUsage struct {
 	mu      sync.Mutex
-	records []SettleRequest
+	records []contract.SettleRequest
 }
 
-func (f *fakeUsage) Record(_ context.Context, s SettleRequest) (float64, error) {
+func (f *fakeUsage) Record(_ context.Context, s contract.SettleRequest) (float64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.records = append(f.records, s)
@@ -86,8 +88,8 @@ func (fakeMinter) Mint(accountID string, _ time.Duration) (string, int64) {
 	return "tok-" + accountID, 9999
 }
 
-func threeCandidates() []Candidate {
-	return []Candidate{
+func threeCandidates() []contract.Candidate {
+	return []contract.Candidate{
 		{AccountID: "a", UpstreamBaseURL: "http://a"},
 		{AccountID: "b", UpstreamBaseURL: "http://b"},
 		{AccountID: "c", UpstreamBaseURL: "http://c"},
@@ -110,7 +112,7 @@ func TestLease_HappyPath(t *testing.T) {
 		Minter: fakeMinter{}, Now: fixedClock(),
 	})
 
-	res, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1"})
+	res, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", RequestID: "r1"})
 	if err != nil {
 		t.Fatalf("lease: %v", err)
 	}
@@ -132,8 +134,8 @@ func TestLease_HappyPath(t *testing.T) {
 func TestLease_InvalidRequest_NoSlotReserved(t *testing.T) {
 	adm := &fakeAdmission{}
 	co := NewCoordinator(Config{Admission: adm, Scheduler: &fakeScheduler{}, Usage: &fakeUsage{}})
-	if _, err := co.Lease(context.Background(), LeaseRequest{APIKey: "", Model: "m"}); !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("want ErrInvalidRequest, got %v", err)
+	if _, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "", Model: "m"}); !errors.Is(err, contract.ErrInvalidRequest) {
+		t.Fatalf("want contract.ErrInvalidRequest, got %v", err)
 	}
 	if adm.reserved != 0 {
 		t.Fatalf("slot should not be reserved on invalid request")
@@ -141,11 +143,11 @@ func TestLease_InvalidRequest_NoSlotReserved(t *testing.T) {
 }
 
 func TestLease_ConcurrencyFull_ShortCircuits(t *testing.T) {
-	adm := &fakeAdmission{reserveErr: ErrConcurrencyFull}
+	adm := &fakeAdmission{reserveErr: contract.ErrConcurrencyFull}
 	sch := &fakeScheduler{candidates: threeCandidates()}
 	co := NewCoordinator(Config{Admission: adm, Scheduler: sch, Usage: &fakeUsage{}})
-	if _, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, ErrConcurrencyFull) {
-		t.Fatalf("want ErrConcurrencyFull, got %v", err)
+	if _, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, contract.ErrConcurrencyFull) {
+		t.Fatalf("want contract.ErrConcurrencyFull, got %v", err)
 	}
 	if sch.calls != 0 {
 		t.Fatalf("scheduler must not be called when admission rejects")
@@ -155,11 +157,11 @@ func TestLease_ConcurrencyFull_ShortCircuits(t *testing.T) {
 func TestLease_BillingIneligible_ReleasesSlot(t *testing.T) {
 	adm := &fakeAdmission{}
 	co := NewCoordinator(Config{
-		Admission: adm, Billing: &fakeBilling{err: ErrBillingIneligible},
+		Admission: adm, Billing: &fakeBilling{err: contract.ErrBillingIneligible},
 		Scheduler: &fakeScheduler{candidates: threeCandidates()}, Usage: &fakeUsage{},
 	})
-	if _, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, ErrBillingIneligible) {
-		t.Fatalf("want ErrBillingIneligible, got %v", err)
+	if _, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, contract.ErrBillingIneligible) {
+		t.Fatalf("want contract.ErrBillingIneligible, got %v", err)
 	}
 	if adm.reserved != 1 || adm.released != 1 {
 		t.Fatalf("slot must be released on billing rejection: reserved=%d released=%d", adm.reserved, adm.released)
@@ -169,8 +171,8 @@ func TestLease_BillingIneligible_ReleasesSlot(t *testing.T) {
 func TestLease_NoAccount_ReleasesSlot(t *testing.T) {
 	adm := &fakeAdmission{}
 	co := NewCoordinator(Config{Admission: adm, Scheduler: &fakeScheduler{candidates: nil}, Usage: &fakeUsage{}})
-	if _, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, ErrNoAccount) {
-		t.Fatalf("want ErrNoAccount, got %v", err)
+	if _, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m"}); !errors.Is(err, contract.ErrNoAccount) {
+		t.Fatalf("want contract.ErrNoAccount, got %v", err)
 	}
 	if adm.released != 1 {
 		t.Fatalf("slot must be released when no account: released=%d", adm.released)
@@ -184,7 +186,7 @@ func TestLease_StickyPromotesBoundAccount(t *testing.T) {
 		Admission: adm, Scheduler: &fakeScheduler{candidates: threeCandidates()},
 		Sticky: sticky, Usage: &fakeUsage{}, Minter: fakeMinter{},
 	})
-	res, err := co.Lease(context.Background(), LeaseRequest{APIKey: "k", Model: "m", SessionHash: "s"})
+	res, err := co.Lease(context.Background(), contract.LeaseRequest{APIKey: "k", Model: "m", SessionHash: "s"})
 	if err != nil {
 		t.Fatalf("lease: %v", err)
 	}
@@ -205,7 +207,7 @@ func TestSettle_RecordsReleasesAndBinds(t *testing.T) {
 	usage := &fakeUsage{}
 	sticky := &fakeSticky{}
 	co := NewCoordinator(Config{Admission: adm, Scheduler: &fakeScheduler{}, Usage: usage, Sticky: sticky})
-	res, err := co.Settle(context.Background(), SettleRequest{
+	res, err := co.Settle(context.Background(), contract.SettleRequest{
 		RequestID: "r1", AccountID: "a", SlotID: "slot-1", SessionHash: "s",
 		InputTokens: 100, OutputTokens: 200, StatusCode: 200,
 	})
@@ -230,7 +232,7 @@ func TestSettle_IdempotentOnRequestID(t *testing.T) {
 	adm := &fakeAdmission{}
 	usage := &fakeUsage{}
 	co := NewCoordinator(Config{Admission: adm, Scheduler: &fakeScheduler{}, Usage: usage})
-	req := SettleRequest{RequestID: "dup", AccountID: "a", SlotID: "slot-1", StatusCode: 200}
+	req := contract.SettleRequest{RequestID: "dup", AccountID: "a", SlotID: "slot-1", StatusCode: 200}
 
 	first, err := co.Settle(context.Background(), req)
 	if err != nil {
@@ -257,7 +259,7 @@ func TestSettle_IdempotentOnRequestID(t *testing.T) {
 func TestSettle_NoBindOnUpstreamError(t *testing.T) {
 	sticky := &fakeSticky{}
 	co := NewCoordinator(Config{Admission: &fakeAdmission{}, Scheduler: &fakeScheduler{}, Usage: &fakeUsage{}, Sticky: sticky})
-	_, err := co.Settle(context.Background(), SettleRequest{
+	_, err := co.Settle(context.Background(), contract.SettleRequest{
 		RequestID: "r", AccountID: "a", SlotID: "slot-1", SessionHash: "s", StatusCode: 503,
 	})
 	if err != nil {

@@ -1,4 +1,4 @@
-package edgegw
+package cchub
 
 import (
 	"encoding/json"
@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 )
 
-// CenterServer exposes the coordinator over HTTP: POST /v1/lease and
+// Server exposes the coordinator over HTTP: POST /v1/lease and
 // POST /v1/settle, plus the edge fleet endpoints (/v1/register, /v1/heartbeat,
 // /v1/edges). It also keeps per-account in-flight accounting balanced against
 // the registry so the load-aware scheduler spreads concurrent requests.
-type CenterServer struct {
+type Server struct {
 	coord    *Coordinator
 	registry *MemRegistry
 	edges    *edgereg.Registry
@@ -33,7 +34,7 @@ type CenterServer struct {
 
 // SetEnrollKeys restricts edge registration to the given enroll keys. An empty
 // list (the default) accepts any edge (dev mode).
-func (s *CenterServer) SetEnrollKeys(keys []string) {
+func (s *Server) SetEnrollKeys(keys []string) {
 	m := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
 		if k != "" {
@@ -45,7 +46,7 @@ func (s *CenterServer) SetEnrollKeys(keys []string) {
 	s.mu.Unlock()
 }
 
-func (s *CenterServer) enrollKeyAllowed(key string) bool {
+func (s *Server) enrollKeyAllowed(key string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.enrollKeys) == 0 {
@@ -55,10 +56,10 @@ func (s *CenterServer) enrollKeyAllowed(key string) bool {
 	return ok
 }
 
-// NewCenterServer wires a coordinator and registry into an HTTP server. edges
+// NewServer wires a coordinator and registry into an HTTP server. edges
 // may be nil to disable edge-fleet tracking.
-func NewCenterServer(coord *Coordinator, registry *MemRegistry, edges *edgereg.Registry) *CenterServer {
-	return &CenterServer{
+func NewServer(coord *Coordinator, registry *MemRegistry, edges *edgereg.Registry) *Server {
+	return &Server{
 		coord:     coord,
 		registry:  registry,
 		edges:     edges,
@@ -67,7 +68,7 @@ func NewCenterServer(coord *Coordinator, registry *MemRegistry, edges *edgereg.R
 }
 
 // Handler returns the center's HTTP mux.
-func (s *CenterServer) Handler() http.Handler {
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -82,10 +83,10 @@ func (s *CenterServer) Handler() http.Handler {
 	return mux
 }
 
-// RegisterRequest / HeartbeatRequest moved to the shared contract package
+// contract.RegisterRequest / contract.HeartbeatRequest moved to the shared contract package
 // (aliased in contract.go) — both ccdirect and cchub use them.
 
-func (s *CenterServer) handleRegister(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -94,7 +95,7 @@ func (s *CenterServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	var req RegisterRequest
+	var req contract.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.EdgeID == "" {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
@@ -112,7 +113,7 @@ func (s *CenterServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *CenterServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -121,7 +122,7 @@ func (s *CenterServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	var req HeartbeatRequest
+	var req contract.HeartbeatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.EdgeID == "" {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
@@ -134,7 +135,7 @@ func (s *CenterServer) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (s *CenterServer) handleEdges(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleEdges(w http.ResponseWriter, _ *http.Request) {
 	if s.edges == nil {
 		writeJSON(w, http.StatusOK, []edgereg.EdgeInfo{})
 		return
@@ -142,12 +143,12 @@ func (s *CenterServer) handleEdges(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.edges.Live())
 }
 
-func (s *CenterServer) handleLease(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLease(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req LeaseRequest
+	var req contract.LeaseRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "decode lease request: "+err.Error())
 		return
@@ -164,12 +165,12 @@ func (s *CenterServer) handleLease(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-func (s *CenterServer) handleSettle(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSettle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req SettleRequest
+	var req contract.SettleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "decode settle request: "+err.Error())
 		return
@@ -185,14 +186,14 @@ func (s *CenterServer) handleSettle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-func (s *CenterServer) acquire(slotID, accountID string) {
+func (s *Server) acquire(slotID, accountID string) {
 	s.mu.Lock()
 	s.slotAccts[slotID] = accountID
 	s.mu.Unlock()
 	s.registry.acquireLoad(accountID)
 }
 
-func (s *CenterServer) release(slotID string) {
+func (s *Server) release(slotID string) {
 	s.mu.Lock()
 	accountID, ok := s.slotAccts[slotID]
 	if ok {
@@ -207,13 +208,13 @@ func (s *CenterServer) release(slotID string) {
 // leaseErrorStatus maps coordinator sentinels to HTTP status + error code.
 func leaseErrorStatus(err error) (int, string) {
 	switch {
-	case errors.Is(err, ErrWaitQueueFull), errors.Is(err, ErrConcurrencyFull):
+	case errors.Is(err, contract.ErrWaitQueueFull), errors.Is(err, contract.ErrConcurrencyFull):
 		return http.StatusTooManyRequests, "rate_limited"
-	case errors.Is(err, ErrBillingIneligible):
+	case errors.Is(err, contract.ErrBillingIneligible):
 		return http.StatusPaymentRequired, "billing_ineligible"
-	case errors.Is(err, ErrNoAccount):
+	case errors.Is(err, contract.ErrNoAccount):
 		return http.StatusServiceUnavailable, "no_account"
-	case errors.Is(err, ErrInvalidRequest):
+	case errors.Is(err, contract.ErrInvalidRequest):
 		return http.StatusBadRequest, "invalid_request"
 	default:
 		return http.StatusInternalServerError, "lease_failed"

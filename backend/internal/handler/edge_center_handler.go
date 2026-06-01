@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/edgegw"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/contract"
 	"github.com/Wei-Shaw/sub2api/internal/edgegw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -285,7 +284,7 @@ func (h *EdgeCenterHandler) Release(c *gin.Context) {
 // center-controlled egress proxy, and runtime params. This is what lets an edge
 // run with ZERO local config beyond the enroll token.
 func (h *EdgeCenterHandler) Enroll(c *gin.Context) {
-	var req edgegw.EnrollRequest
+	var req contract.EnrollRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode enroll request")
 		return
@@ -306,7 +305,7 @@ func (h *EdgeCenterHandler) Enroll(c *gin.Context) {
 	if mf <= 0 {
 		mf = 3
 	}
-	c.JSON(http.StatusOK, edgegw.EnrollResponse{
+	c.JSON(http.StatusOK, contract.EnrollResponse{
 		EdgeID:           edgeID,
 		CenterURL:        h.issuedCenterURL,
 		TokenSecret:      string(h.tokenSecret),
@@ -342,7 +341,7 @@ func (h *EdgeCenterHandler) Config(c *gin.Context) {
 	if mf <= 0 {
 		mf = 3
 	}
-	c.JSON(http.StatusOK, edgegw.EnrollResponse{
+	c.JSON(http.StatusOK, contract.EnrollResponse{
 		EdgeID:           "edge-u" + strconv.FormatInt(uid, 10),
 		CenterURL:        h.issuedCenterURL,
 		TokenSecret:      string(h.tokenSecret),
@@ -355,7 +354,7 @@ func (h *EdgeCenterHandler) Config(c *gin.Context) {
 
 // Register records an edge in the fleet (auto-detecting its egress IP).
 func (h *EdgeCenterHandler) Register(c *gin.Context) {
-	var req edgegw.RegisterRequest
+	var req contract.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.EdgeID == "" {
 		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
@@ -370,7 +369,7 @@ func (h *EdgeCenterHandler) Register(c *gin.Context) {
 
 // Heartbeat keeps an edge marked live; 404 tells it to re-register.
 func (h *EdgeCenterHandler) Heartbeat(c *gin.Context) {
-	var req edgegw.HeartbeatRequest
+	var req contract.HeartbeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.EdgeID == "" {
 		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
@@ -448,7 +447,7 @@ var (
 // (acquiring its concurrency slot), and returns the account + upstream token +
 // endpoint for the edge to use.
 func (h *EdgeCenterHandler) Lease(c *gin.Context) {
-	var req edgegw.LeaseRequest
+	var req contract.LeaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode lease request")
 		return
@@ -528,7 +527,7 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 	// lease token is never returned raw). The edge opens it with the seal secret
 	// it received at enroll.
 	if cand.LeaseToken != "" {
-		sealed, sErr := edgegw.SealLeaseToken(cand.LeaseToken, req.EdgeID, h.tokenTTL, h.tokenSecret, time.Now)
+		sealed, sErr := contract.SealLeaseToken(cand.LeaseToken, req.EdgeID, h.tokenTTL, h.tokenSecret, time.Now)
 		if sErr != nil {
 			release()
 			edgeCenterError(c, http.StatusInternalServerError, "seal_failed", sErr.Error())
@@ -552,16 +551,16 @@ func (h *EdgeCenterHandler) Lease(c *gin.Context) {
 	}
 	h.mu.Unlock()
 
-	c.JSON(http.StatusOK, edgegw.LeaseResult{
+	c.JSON(http.StatusOK, contract.LeaseResult{
 		RequestID:  req.RequestID,
 		SlotID:     slotID,
-		Candidates: []edgegw.Candidate{cand},
+		Candidates: []contract.Candidate{cand},
 	})
 }
 
 // Settle releases the concurrency slot held since Lease. Idempotent on slotID.
 func (h *EdgeCenterHandler) Settle(c *gin.Context) {
-	var req edgegw.SettleRequest
+	var req contract.SettleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode settle request")
 		return
@@ -589,7 +588,7 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 		h.recordSettleUsage(slot, req)
 	}
 
-	c.JSON(http.StatusOK, edgegw.SettleResult{
+	c.JSON(http.StatusOK, contract.SettleResult{
 		RequestID: req.RequestID,
 		Accepted:  true,
 		Duplicate: duplicate,
@@ -600,7 +599,7 @@ func (h *EdgeCenterHandler) Settle(c *gin.Context) {
 // records it through sub2api's GatewayService.RecordUsage (per-account + per-
 // apikey usage, pricing, quota deduction). Runs synchronously on a background
 // context so it is independent of the settle request's lifetime.
-func (h *EdgeCenterHandler) recordSettleUsage(slot *leasedSlot, req edgegw.SettleRequest) {
+func (h *EdgeCenterHandler) recordSettleUsage(slot *leasedSlot, req contract.SettleRequest) {
 	result := &service.ForwardResult{
 		RequestID: req.RequestID,
 		Usage: service.ClaudeUsage{
@@ -639,18 +638,18 @@ func (h *EdgeCenterHandler) recordSettleUsage(slot *leasedSlot, req edgegw.Settl
 // Note: this calls only EXISTING public sub2api APIs and lives entirely in the
 // edge extension — no sub2api core file is modified, so the fork stays
 // upstream-upgradeable.
-func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (edgegw.Candidate, error) {
+func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (contract.Candidate, error) {
 	// Resolve the access token via sub2api's existing public method — agnostic to
 	// fixed-key vs OAuth (for a fixed-key account the token IS the api key; for
 	// OAuth it is the refreshed access token).
 	token, _, err := h.gatewayService.GetAccessToken(ctx, acc)
 	if err != nil {
-		return edgegw.Candidate{}, err
+		return contract.Candidate{}, err
 	}
 	if token == "" {
 		// Empty token => not a bearer-style credential (e.g. bedrock /
 		// service_account): not servable through the edge.
-		return edgegw.Candidate{}, errEdgeUnsupportedType
+		return contract.Candidate{}, errEdgeUnsupportedType
 	}
 
 	// The upstream base URL is account configuration provided when the account is
@@ -667,7 +666,7 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 		base = acc.GetBaseURL()
 	}
 	if base == "" {
-		return edgegw.Candidate{}, errEdgeNoBaseURL
+		return contract.Candidate{}, errEdgeNoBaseURL
 	}
 
 	// No new auth "scheme": the edge presents the credential as Authorization:
@@ -675,7 +674,7 @@ func (h *EdgeCenterHandler) candidateFromAccount(ctx context.Context, acc *servi
 	// OAuth all use) and otherwise relays the client request unchanged. The edge
 	// is just one more way to execute an account; the only new surface is
 	// lease/settle. (AuthScheme zero value == Authorization: Bearer.)
-	return edgegw.Candidate{
+	return contract.Candidate{
 		AccountID:       strconv.FormatInt(acc.ID, 10),
 		Platform:        acc.Platform,
 		UpstreamBaseURL: base,
