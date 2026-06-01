@@ -14,10 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ccgw/contract"
-	"github.com/Wei-Shaw/sub2api/ccgw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/langgexyz/ccgw/contract"
+	"github.com/langgexyz/ccgw/edgereg"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
