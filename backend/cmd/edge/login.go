@@ -88,7 +88,8 @@ func loopbackLogin(ctx context.Context, hc *http.Client, authBase, centerWebBase
 	if err != nil {
 		return loginResult{}, fmt.Errorf("start loopback listener: %w", err)
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
+	tcpAddr, _ := ln.Addr().(*net.TCPAddr)
+	port := tcpAddr.Port
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 
 	resultCh := make(chan callbackResult, 1)
