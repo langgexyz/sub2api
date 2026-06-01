@@ -13,7 +13,7 @@ import (
 // Enrollment turns one user-supplied token into a fully-configured edge: the
 // center validates the enroll key, assigns an edge ID, and issues the operating
 // parameters (heartbeat interval, failover count, platforms) so the edge needs
-// no local flags beyond the token. See cmd/edge and internal/ccgw/enroll.
+// no local flags beyond the token. See cmd/ccdirect and internal/ccgw/enroll.
 
 // contract.EnrollRequest / contract.EnrollResponse moved to the shared contract package (aliased
 // in contract.go) — both ccdirect and cchub use them.

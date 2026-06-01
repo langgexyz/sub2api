@@ -16,8 +16,8 @@ EDGE_ADDR=127.0.0.1:8088
 MOCK_ADDR=127.0.0.1:9100
 
 echo "info: building binaries"
-go build -o "$OUT/center" ./cmd/center
-go build -o "$OUT/edge" ./cmd/edge
+go build -o "$OUT/center" ./cmd/cchub
+go build -o "$OUT/edge" ./cmd/ccdirect
 go build -o "$OUT/mockupstream" ./cmd/mockupstream
 
 # Account registry: one account whose upstream points at the mock, with a model
