@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
 )
 
 // Provider captures the per-platform protocol differences the edge must honor

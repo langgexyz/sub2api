@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
 )
 
 // Admission is the central concurrency/quota gate. Reserve is non-blocking: it
@@ -78,7 +78,7 @@ type Coordinator struct {
 
 // QuotaReserver pre-debits an estimated cost at Lease and reconciles the actual
 // cost at Settle, preventing double-spend across concurrent edges. Satisfied by
-// internal/ccgw/quota.Ledger; modeled as an interface so the coordinator
+// ccgw/quota.Ledger; modeled as an interface so the coordinator
 // stays decoupled and fake-testable.
 type QuotaReserver interface {
 	Reserve(apiKey, requestID string, estimate float64) error

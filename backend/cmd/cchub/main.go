@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgetls"
+	"github.com/Wei-Shaw/sub2api/ccgw/edgereg"
+	"github.com/Wei-Shaw/sub2api/ccgw/edgetls"
 	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 

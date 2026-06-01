@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/enroll"
+	"github.com/Wei-Shaw/sub2api/ccgw/enroll"
 )
 
 // control.go is the local control-plane between the interactive `edge` console

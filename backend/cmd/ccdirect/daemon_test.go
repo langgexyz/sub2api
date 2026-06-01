@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
 )
 
 // releaseServer serves a signed manifest at /v1/release and the binary at /bin.
