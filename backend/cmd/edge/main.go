@@ -76,6 +76,19 @@ type edgeApp struct {
 	cfg         edgeFlags
 }
 
+// resolveSessionPath returns the session file path: the explicit override if set,
+// else the per-user default. Shared so the console, daemon, and the daemon-detect
+// path all agree on where the session (and thus the control socket) lives.
+func resolveSessionPath(cfg edgeFlags) string {
+	if cfg.statePath != "" {
+		return cfg.statePath
+	}
+	if p, err := enroll.DefaultSessionPath(); err == nil {
+		return p
+	}
+	return ""
+}
+
 // newEdgeApp builds the relay + app from cfg, loading any saved session (owner
 // token pair) and the per-machine device key. It does not start serving. Shared
 // by the interactive console (runServe) and the headless daemon (runDaemon).
@@ -86,12 +99,7 @@ func newEdgeApp(cfg edgeFlags) (*edgeApp, error) {
 	}
 	centerClient := &http.Client{Timeout: 15 * time.Second}
 
-	sessionPath := cfg.statePath
-	if sessionPath == "" {
-		if p, perr := enroll.DefaultSessionPath(); perr == nil {
-			sessionPath = p
-		}
-	}
+	sessionPath := resolveSessionPath(cfg)
 	sess, _ := enroll.LoadSession(sessionPath)
 
 	// Load (or create) the per-machine device key. The center binds the refresh
@@ -177,6 +185,15 @@ func shutdownServer(srv *http.Server) {
 
 func runServe(args []string) {
 	cfg := parseFlags(args)
+
+	// If a daemon is already running, attach to it as a thin client instead of
+	// starting a second relay on the same listen address. The console then drives
+	// the daemon over the control socket.
+	if sockPath, perr := controlSocketPath(resolveSessionPath(cfg)); perr == nil && daemonRunning(sockPath) {
+		runConsoleClient(cfg, resolveSessionPath(cfg), sockPath)
+		return
+	}
+
 	app, err := newEdgeApp(cfg)
 	if err != nil {
 		log.Fatalf("edge: %v", err)
@@ -284,27 +301,7 @@ func (app *edgeApp) repl(ctx context.Context, cancel context.CancelFunc) {
 }
 
 func (app *edgeApp) printStatus() {
-	if !app.relay.LoggedIn() {
-		fmt.Println("  status: logged out (run /login)")
-		fmt.Printf("  center: %s\n", app.centerEdge)
-		fmt.Printf("  listen: %s\n", app.addr)
-		return
-	}
-	access := app.relay.OwnerAccess()
-	who := "unknown"
-	expiry := "?"
-	if claims, ok := parseJWTUnverified(access); ok {
-		if claims.Email != "" {
-			who = fmt.Sprintf("%s (uid %d)", claims.Email, claims.UserID)
-		}
-		expiry = time.Until(claims.expiresAt()).Round(time.Second).String()
-	}
-	fmt.Printf("  status: logged in\n")
-	fmt.Printf("  owner:  %s\n", who)
-	fmt.Printf("  edge:   %s\n", app.relay.EdgeID())
-	fmt.Printf("  center: %s\n", app.centerEdge)
-	fmt.Printf("  listen: %s\n", app.addr)
-	fmt.Printf("  access expires in: %s\n", expiry)
+	renderStatusInfo(app.statusSnapshot())
 }
 
 func splitCSV(s string) []string {
