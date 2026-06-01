@@ -24,7 +24,8 @@ type edgeFlags struct {
 	upstreamTimeout time.Duration
 	heartbeat       time.Duration
 	internalKey     string
-	statePath       string // session file override (default: per-user config dir)
+	statePath       string        // session file override (default: per-user config dir)
+	upgradeInterval time.Duration // daemon self-update check cadence (0 = disabled)
 }
 
 func parseFlags(args []string) edgeFlags {
@@ -39,6 +40,7 @@ func parseFlags(args []string) edgeFlags {
 	heartbeat := fs.Duration("heartbeat", envDuration("EDGE_HEARTBEAT", 10*time.Second), "heartbeat interval [EDGE_HEARTBEAT]")
 	internalKey := fs.String("internal-key", env("EDGE_INTERNAL_KEY", ""), "shared secret enabling /internal/egress (empty = disabled) [EDGE_INTERNAL_KEY]")
 	statePath := fs.String("session", env("EDGE_SESSION", ""), "session file path (default: per-user config dir) [EDGE_SESSION]")
+	upgradeInterval := fs.Duration("upgrade-interval", envDuration("EDGE_UPGRADE_INTERVAL", 6*time.Hour), "daemon self-update check cadence, 0 to disable [EDGE_UPGRADE_INTERVAL]")
 	_ = fs.Parse(args)
 
 	// Enforce HTTPS to the center: ccdirect↔cchub carries owner tokens, sealed
@@ -60,6 +62,7 @@ func parseFlags(args []string) edgeFlags {
 		heartbeat:       *heartbeat,
 		internalKey:     *internalKey,
 		statePath:       *statePath,
+		upgradeInterval: *upgradeInterval,
 	}
 }
 

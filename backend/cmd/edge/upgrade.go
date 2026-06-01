@@ -28,49 +28,61 @@ var cchubReleasePubKey = ""
 // os/arch, verify cchub's signature over {version,url,sha256}, and if it is newer
 // than the running binary, download it, check its SHA-256, and atomically swap
 // the running executable. The user re-runs `edge` afterwards (the daemon, #16,
-// will do this automatically). Returns an error describing any failure; the
-// current binary is never left half-written (download to a temp file in the same
-// dir, then rename over the target).
+// does this automatically via checkAndUpgrade). The current binary is never left
+// half-written (download to a temp file in the same dir, then rename over it).
 func runUpgrade(args []string) error {
 	cfg := parseFlags(args)
-
-	pub, err := contract.DecodeReleasePubKey(cchubReleasePubKey)
-	if err != nil {
-		return fmt.Errorf("invalid embedded release pubkey: %w", err)
-	}
-	if pub == nil {
-		return fmt.Errorf("this build has no embedded cchub release key; refusing to self-update from an unverifiable source (rebuild with -X main.cchubReleasePubKey=...)")
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	man, err := fetchReleaseManifest(context.Background(), client, cfg.center, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-	if man.Empty() {
-		fmt.Printf("no release published for %s/%s; nothing to do\n", runtime.GOOS, runtime.GOARCH)
-		return nil
-	}
-	if err := contract.VerifyRelease(pub, man); err != nil {
-		return fmt.Errorf("release manifest failed signature verification: %w", err)
-	}
-	if man.Version == Version {
-		fmt.Printf("already on %s; nothing to do\n", Version)
-		return nil
-	}
-
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("locate current binary: %w", err)
 	}
 	self, _ = filepath.EvalSymlinks(self)
 
-	fmt.Printf("upgrading %s -> %s …\n", Version, man.Version)
-	if err := downloadVerifyReplace(context.Background(), client, man, self); err != nil {
+	newVer, err := checkAndUpgrade(context.Background(), cfg, self)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("upgraded to %s. Restart `edge` to run the new version.\n", man.Version)
+	if newVer == "" {
+		fmt.Printf("already on %s (or no newer release for %s/%s); nothing to do\n", Version, runtime.GOOS, runtime.GOARCH)
+		return nil
+	}
+	fmt.Printf("upgraded %s -> %s. Restart `edge` to run the new version.\n", Version, newVer)
 	return nil
+}
+
+// checkAndUpgrade fetches cchub's signed release manifest for this os/arch, verifies
+// the signature, and if it names a version different from the running one, downloads
+// and atomically swaps the binary at selfPath. Returns the new version on a swap, ""
+// when there is nothing to do (no release published, or already current). Any error
+// leaves selfPath untouched. selfPath is a parameter (not always os.Executable) so
+// the daemon ticker and tests can target a known file.
+func checkAndUpgrade(ctx context.Context, cfg edgeFlags, selfPath string) (string, error) {
+	pub, err := contract.DecodeReleasePubKey(cchubReleasePubKey)
+	if err != nil {
+		return "", fmt.Errorf("invalid embedded release pubkey: %w", err)
+	}
+	if pub == nil {
+		return "", fmt.Errorf("this build has no embedded cchub release key; refusing to self-update from an unverifiable source (rebuild with -X main.cchubReleasePubKey=...)")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	man, err := fetchReleaseManifest(ctx, client, cfg.center, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+	if man.Empty() {
+		return "", nil
+	}
+	if err := contract.VerifyRelease(pub, man); err != nil {
+		return "", fmt.Errorf("release manifest failed signature verification: %w", err)
+	}
+	if man.Version == Version {
+		return "", nil
+	}
+	if err := downloadVerifyReplace(ctx, client, man, selfPath); err != nil {
+		return "", err
+	}
+	return man.Version, nil
 }
 
 // fetchReleaseManifest GETs cchub's signed manifest for os/arch. centerURL is the

@@ -22,7 +22,7 @@ type deviceKey struct {
 // publicKeyB64 returns base64(raw 32-byte public key) — the wire form sent to
 // the center as the device_pubkey login param.
 func (k deviceKey) publicKeyB64() string {
-	pub := k.priv.Public().(ed25519.PublicKey)
+	pub, _ := k.priv.Public().(ed25519.PublicKey)
 	return base64.StdEncoding.EncodeToString(pub)
 }
 
