@@ -81,6 +81,9 @@ func (e *Relay) RunHeartbeat(ctx context.Context, egressIP string, platforms []s
 			if err == nil && !known {
 				_ = e.Register(ctx, egressIP, platforms)
 			}
+			// Ship accumulated anomalies on the same cadence (best-effort; a
+			// failed flush drops the window without blocking the heartbeat).
+			e.flushReport(ctx)
 		}
 	}
 }
