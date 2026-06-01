@@ -79,7 +79,7 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    // CLI-authorize confirmation page (edge CLI loopback + PKCE login).
+    // CLI-authorize confirmation page (ccdirect CLI loopback + PKCE login).
     // requiresAuth: true -> an unauthenticated user is sent to
     // /login?redirect=<full /cli/authorize?...> and returns here after login.
     // vue-router URL-encodes the redirect query value, so the whole query
