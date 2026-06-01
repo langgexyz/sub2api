@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
 )
 
 func TestProviderFor_Resolution(t *testing.T) {

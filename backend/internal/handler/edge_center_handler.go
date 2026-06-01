@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/edgereg"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 

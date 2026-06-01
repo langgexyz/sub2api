@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
 )
 
 // anomalyReporter aggregates operational anomalies by kind so ccdirect can ship

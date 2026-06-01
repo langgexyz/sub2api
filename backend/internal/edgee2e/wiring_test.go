@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/ccdirect"
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/contract"
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/edgereg"
-	"github.com/Wei-Shaw/sub2api/internal/ccgw/quota"
+	"github.com/Wei-Shaw/sub2api/ccgw/contract"
+	"github.com/Wei-Shaw/sub2api/ccgw/edgereg"
+	"github.com/Wei-Shaw/sub2api/ccgw/quota"
 	"github.com/Wei-Shaw/sub2api/internal/cchub"
 )
 
