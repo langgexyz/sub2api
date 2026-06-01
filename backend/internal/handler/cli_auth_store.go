@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-// In-memory stores backing the loopback+PKCE CLI login (the edge / ccdirect).
+// In-memory stores backing the loopback+PKCE CLI login (ccdirect).
 //
 // Two pieces of state, both single-process and in-memory (mirroring the prior
 // device-code store / lease-slot map): a short-TTL authorization-code grant
 // store, and a refresh-token -> device-pubkey binding map. Multi-replica
 // centers would need a shared store; for MVP losing this on restart is
-// acceptable (the edge re-logs-in). See docs/tech/ccdirect-auth-contract.md.
+// acceptable (the ccdirect re-logs-in). See docs/tech/ccdirect-auth-contract.md.
 
 const (
 	// cliGrantTTL is the authorization_code lifetime (contract: 120s).

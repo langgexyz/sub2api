@@ -10,30 +10,30 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CCDirectMTLSGuard enforces mutual TLS on the edge control-plane routes
-// (/edge/v1/*). When an edge client CA is configured (CCDIRECT_MTLS_CLIENT_CA file),
+// CCDirectMTLSGuard enforces mutual TLS on the ccdirect control-plane routes
+// (/ccdirect/v1/*). When an ccdirect client CA is configured (CCDIRECT_MTLS_CLIENT_CA file),
 // every request to these routes must present a client certificate that verifies
 // against that CA — narrowing "who can obtain a lease token" from "anyone who
-// can reach /edge/v1/lease" to "a node holding a center-issued edge certificate"
+// can reach /ccdirect/v1/lease" to "a node holding a center-issued ccdirect certificate"
 // (revoke the cert to cut a node off).
 //
 // The client cert is taken either from the in-process TLS handshake
 // (Request.TLS, when sub2api itself terminates TLS with RequestClientCert) or
 // from a trusted reverse proxy that forwards it as a PEM header
-// (X-Edge-Client-Cert, URL-escaped — the common nginx/Caddy deployment, since
+// (X-CCDirect-Client-Cert, URL-escaped — the common nginx/Caddy deployment, since
 // sub2api normally runs behind a TLS-terminating proxy).
 //
 // When no CA is configured the guard is a no-op (dev / single-host). It is
-// additive: it only gates the edge group, never the gateway or admin surface.
+// additive: it only gates the ccdirect group, never the gateway or admin surface.
 type CCDirectMTLSGuard struct {
 	pool *x509.CertPool
 }
 
 // clientCertHeader carries a reverse-proxy-forwarded client certificate (PEM,
-// URL-escaped). nginx: proxy_set_header X-Edge-Client-Cert $ssl_client_escaped_cert;
+// URL-escaped). nginx: proxy_set_header X-CCDirect-Client-Cert $ssl_client_escaped_cert;
 const clientCertHeader = "X-CCDirect-Client-Cert"
 
-// NewCCDirectMTLSGuard loads the edge client CA from CCDIRECT_MTLS_CLIENT_CA if set.
+// NewCCDirectMTLSGuard loads the ccdirect client CA from CCDIRECT_MTLS_CLIENT_CA if set.
 func NewCCDirectMTLSGuard() (*CCDirectMTLSGuard, error) {
 	path := os.Getenv("CCDIRECT_MTLS_CLIENT_CA")
 	if path == "" {
@@ -60,10 +60,10 @@ func (g *CCDirectMTLSGuard) Middleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		chain := edgeClientChain(c.Request)
+		chain := ccdirectClientChain(c.Request)
 		if len(chain) == 0 {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": gin.H{"code": "mtls_required", "message": "edge client certificate required"},
+				"error": gin.H{"code": "mtls_required", "message": "ccdirect client certificate required"},
 			})
 			return
 		}
@@ -77,7 +77,7 @@ func (g *CCDirectMTLSGuard) Middleware() gin.HandlerFunc {
 		}
 		if _, err := chain[0].Verify(opts); err != nil {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error": gin.H{"code": "mtls_invalid", "message": "edge client certificate not trusted"},
+				"error": gin.H{"code": "mtls_invalid", "message": "ccdirect client certificate not trusted"},
 			})
 			return
 		}
@@ -85,9 +85,9 @@ func (g *CCDirectMTLSGuard) Middleware() gin.HandlerFunc {
 	}
 }
 
-// edgeClientChain returns the presented client cert chain, from the in-process
+// ccdirectClientChain returns the presented client cert chain, from the in-process
 // TLS handshake or a reverse-proxy-forwarded PEM header.
-func edgeClientChain(r *http.Request) []*x509.Certificate {
+func ccdirectClientChain(r *http.Request) []*x509.Certificate {
 	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
 		return r.TLS.PeerCertificates
 	}
@@ -116,8 +116,8 @@ func edgeClientChain(r *http.Request) []*x509.Certificate {
 	return certs
 }
 
-type edgeCAErr string
+type ccdirectCAErr string
 
-func (e edgeCAErr) Error() string { return string(e) }
+func (e ccdirectCAErr) Error() string { return string(e) }
 
-const errEdgeCAParse = edgeCAErr("edge mTLS client CA: no certificates parsed")
+const errEdgeCAParse = ccdirectCAErr("ccdirect mTLS client CA: no certificates parsed")

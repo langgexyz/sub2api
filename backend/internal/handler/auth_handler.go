@@ -32,14 +32,14 @@ type AuthHandler struct {
 	dingTalkClientInstance *DingTalkClient
 	dingTalkClientMu       sync.Mutex
 
-	// cliGrantStore backs the loopback+PKCE CLI login (the edge / ccdirect).
+	// cliGrantStore backs the loopback+PKCE CLI login (ccdirect).
 	// In-memory, short-TTL; only the authenticated /cli/authorize path writes to
 	// it. See cli_auth_store.go.
 	cliGrantStore *cliGrantStore
 
 	// deviceBindings binds a refresh token (by hash) to a device Ed25519 public
 	// key, so a device-bound refresh requires a valid device signature. In-memory
-	// for MVP: lost on restart -> edge re-logs-in. See cli_auth_store.go.
+	// for MVP: lost on restart -> ccdirect re-logs-in. See cli_auth_store.go.
 	deviceBindings *deviceBindingStore
 }
 
@@ -675,7 +675,7 @@ type RefreshTokenResponse struct {
 // RefreshToken 刷新Token
 // POST /api/v1/auth/refresh
 //
-// 设备绑定（ccdirect/edge loopback+PKCE 登录）：如果该 refresh token 绑定了设备
+// 设备绑定（ccdirect loopback+PKCE 登录）：如果该 refresh token 绑定了设备
 // 公钥，则刷新必须携带有效的 X-CCDirect-Timestamp + X-CCDirect-Signature
 // （Ed25519，对 canonical string 签名），用绑定的公钥验签通过后才轮换。未绑定的
 // refresh token（Web 端）行为不变。轮换后保持设备绑定。

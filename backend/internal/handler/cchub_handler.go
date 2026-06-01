@@ -17,37 +17,37 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/langgexyz/ccgw/contract"
-	"github.com/langgexyz/ccgw/edgereg"
+	"github.com/langgexyz/ccgw/registry"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 // CCHubHandler turns sub2api into the control plane for the distributed
-// edge: it exposes /v1/lease and /v1/settle backed by the REAL services
+// ccdirect: it exposes /v1/lease and /v1/settle backed by the REAL services
 // (APIKeyService for auth, GatewayService for load-aware account selection,
 // BillingCacheService for eligibility, ConcurrencyService for slots). A data
-// -plane edge calls Lease to obtain a real account + its upstream token +
+// -plane ccdirect calls Lease to obtain a real account + its upstream token +
 // endpoint, performs the upstream request itself from its stable IP, then calls
 // Settle to release the slot. This reuses sub2api's accounts, keys, scheduling
-// and concurrency without the edge holding any of that state.
+// and concurrency without the ccdirect holding any of that state.
 //
 // Slot lifecycle: GatewayService hands back an in-process ReleaseFunc closure
 // that cannot cross the Lease/Settle HTTP boundary, so we keep slotID ->
 // ReleaseFunc in memory here (correct for a single center process) and release
 // it at Settle. Multi-replica centers need a Redis-backed release-by-key; see
-// docs/tech/distributed-edge.md.
+// docs/tech/distributed-ccdirect.md.
 type CCHubHandler struct {
 	apiKeyService  *service.APIKeyService
 	gatewayService *service.GatewayService
 	billingService *service.BillingCacheService
 	authService    *service.AuthService
 
-	edges *edgereg.Registry
+	ccdirects *registry.Registry
 
 	// Lease tokens are ALWAYS AEAD-sealed bound to {ccdirectID, exp}; tokenSecret is
-	// derived automatically (never operator-configured) and handed to each edge
-	// at enroll, so the edge can open what the center sealed. seal is mandatory.
+	// derived automatically (never operator-configured) and handed to each ccdirect
+	// at enroll, so the ccdirect can open what the center sealed. seal is mandatory.
 	tokenSecret []byte
 	tokenTTL    time.Duration
 
@@ -56,8 +56,8 @@ type CCHubHandler struct {
 	// embedding into ccdirect). livenessTTL bounds each token's validity.
 	livenessKey ed25519.PrivateKey
 	livenessTTL time.Duration
-	// revokedEdges: edge ids cchub refuses to vouch for — heartbeat returns no
-	// liveness token, so those edges drain. Guarded by mu.
+	// revokedEdges: ccdirect ids cchub refuses to vouch for — heartbeat returns no
+	// liveness token, so those ccdirects drain. Guarded by mu.
 	revokedEdges map[string]struct{}
 
 	// releaseKey signs ccdirect self-update release manifests (Ed25519, derived
@@ -68,7 +68,7 @@ type CCHubHandler struct {
 	releaseKey       ed25519.PrivateKey
 	releaseManifests map[string]contract.ReleaseManifest
 
-	// Config the center ISSUES to edges at enroll (so the edge needs no local
+	// Config the center ISSUES to ccdirects at enroll (so the ccdirect needs no local
 	// config beyond a token): egress proxy URL, heartbeat, failover, platforms.
 	issuedProxy       string
 	issuedCenterURL   string
@@ -82,8 +82,8 @@ type CCHubHandler struct {
 	slots map[string]*leasedSlot
 }
 
-// SetEnrollConfig sets what the center issues to enrolling edges (egress proxy
-// is included so the edge's stable-IP egress is center-controlled, not local).
+// SetEnrollConfig sets what the center issues to enrolling ccdirects (egress proxy
+// is included so the ccdirect's stable-IP egress is center-controlled, not local).
 func (h *CCHubHandler) SetEnrollConfig(cchubURL, upstreamProxy string, heartbeatSeconds, maxFailover int, platforms []string) {
 	h.issuedCenterURL = cchubURL
 	h.issuedProxy = upstreamProxy
@@ -127,7 +127,7 @@ type leasedSlot struct {
 	quotaPlatform string
 }
 
-// NewCCHubHandler builds the edge control-plane handler.
+// NewCCHubHandler builds the ccdirect control-plane handler.
 func NewCCHubHandler(
 	apiKeyService *service.APIKeyService,
 	gatewayService *service.GatewayService,
@@ -139,16 +139,16 @@ func NewCCHubHandler(
 		gatewayService: gatewayService,
 		billingService: billingService,
 		authService:    authService,
-		edges:          edgereg.New(60*time.Second, time.Now),
+		ccdirects:      registry.New(60*time.Second, time.Now),
 		slots:          make(map[string]*leasedSlot),
 		// Seal is MANDATORY and zero-config: the secret is auto-derived (from
 		// JWT_SECRET if present, else a random per-process key) and handed to each
-		// edge at enroll. Lease tokens are never returned raw.
+		// ccdirect at enroll. Lease tokens are never returned raw.
 		tokenSecret: deriveSealSecret(),
 		tokenTTL:    2 * time.Minute,
 		livenessKey: deriveLivenessKey(),
 		// Each token outlives ~3 heartbeats so brief network hiccups don't drain a
-		// healthy edge; ccdirect drains only after the token actually expires.
+		// healthy ccdirect; ccdirect drains only after the token actually expires.
 		livenessTTL:      3 * time.Minute,
 		revokedEdges:     make(map[string]struct{}),
 		releaseKey:       deriveReleaseKey(),
@@ -162,15 +162,15 @@ func NewCCHubHandler(
 // restarts, shared by all replicas of the same deploy), else a random key.
 func deriveSealSecret() []byte {
 	if s := os.Getenv("JWT_SECRET"); s != "" {
-		sum := sha256.Sum256([]byte("edge-lease-seal/" + s))
+		sum := sha256.Sum256([]byte("ccdirect-lease-seal/" + s))
 		// hex-encode so the secret is a printable ASCII string: it is JSON-safe
-		// to hand to the edge at enroll, and both sides treat []byte(hexString)
+		// to hand to the ccdirect at enroll, and both sides treat []byte(hexString)
 		// as the seal key identically.
 		return []byte(hex.EncodeToString(sum[:]))
 	}
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return []byte("edge-lease-seal-fallback-key-0001")
+		return []byte("ccdirect-lease-seal-fallback-key-0001")
 	}
 	return []byte(hex.EncodeToString(b))
 }
@@ -201,7 +201,7 @@ func (h *CCHubHandler) LivenessPublicKey() string {
 	return contract.EncodeLivenessPubKey(pub)
 }
 
-// SetEdgeRevoked marks (or clears) an edge id as revoked. A revoked edge gets no
+// SetEdgeRevoked marks (or clears) an ccdirect id as revoked. A revoked ccdirect gets no
 // liveness token on heartbeat and drains within the liveness TTL.
 func (h *CCHubHandler) SetEdgeRevoked(ccdirectID string, revoked bool) {
 	h.mu.Lock()
@@ -265,12 +265,12 @@ func (h *CCHubHandler) SetReleaseManifest(version, goos, goarch, url, sha256hex 
 // it returns an empty (unsigned) manifest with 200, which ccdirect treats as
 // "nothing to upgrade to". ccdirect verifies the signature with its embedded
 // release public key before trusting the url+checksum.
-// GET /edge/v1/release?os=&arch=
+// GET /ccdirect/v1/release?os=&arch=
 func (h *CCHubHandler) Release(c *gin.Context) {
 	goos := c.Query("os")
 	goarch := c.Query("arch")
 	if goos == "" || goarch == "" {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "os and arch are required")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "os and arch are required")
 		return
 	}
 	h.mu.Lock()
@@ -279,23 +279,23 @@ func (h *CCHubHandler) Release(c *gin.Context) {
 	c.JSON(http.StatusOK, m)
 }
 
-// Enroll exchanges an enroll key for the edge's full operating config: an
-// assigned edge id, the seal secret (so it can open sealed lease tokens), the
-// center-controlled egress proxy, and runtime params. This is what lets an edge
+// Enroll exchanges an enroll key for the ccdirect's full operating config: an
+// assigned ccdirect id, the seal secret (so it can open sealed lease tokens), the
+// center-controlled egress proxy, and runtime params. This is what lets an ccdirect
 // run with ZERO local config beyond the enroll token.
 func (h *CCHubHandler) Enroll(c *gin.Context) {
 	var req contract.EnrollRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode enroll request")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "decode enroll request")
 		return
 	}
 	if !h.enrollKeyAllowed(req.Key) {
-		edgeCenterError(c, http.StatusUnauthorized, "enroll_denied", "invalid enroll key")
+		ccHubError(c, http.StatusUnauthorized, "enroll_denied", "invalid enroll key")
 		return
 	}
 	ccdirectID := req.CCDirectID
 	if ccdirectID == "" {
-		ccdirectID = "edge-" + strconv.FormatInt(atomic.AddInt64(&h.enrollSeq, 1), 10)
+		ccdirectID = "ccdirect-" + strconv.FormatInt(atomic.AddInt64(&h.enrollSeq, 1), 10)
 	}
 	hb := h.issuedHeartbeat
 	if hb <= 0 {
@@ -316,21 +316,21 @@ func (h *CCHubHandler) Enroll(c *gin.Context) {
 	})
 }
 
-// Config returns the edge's operating config to an owner-authenticated edge.
+// Config returns the ccdirect's operating config to an owner-authenticated ccdirect.
 // It is the device-login counterpart of Enroll: instead of presenting an enroll
-// key, the edge presents its owner's sub2api JWT (obtained via the device flow),
-// and the center returns the seal secret + runtime params, with the edge id
-// derived from the owner's user id (one logical edge per user). No enroll key
+// key, the ccdirect presents its owner's sub2api JWT (obtained via the device flow),
+// and the center returns the seal secret + runtime params, with the ccdirect id
+// derived from the owner's user id (one logical ccdirect per user). No enroll key
 // needed — the JWT IS the credential.
-// GET /edge/v1/config
+// GET /ccdirect/v1/config
 func (h *CCHubHandler) Config(c *gin.Context) {
-	uid, err := h.edgeOwnerUserID(c)
+	uid, err := h.ccdirectOwnerUserID(c)
 	if err != nil {
-		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
+		ccHubError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
 		return
 	}
 	if uid == 0 {
-		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", "owner JWT required")
+		ccHubError(c, http.StatusUnauthorized, "edge_unauthenticated", "owner JWT required")
 		return
 	}
 	hb := h.issuedHeartbeat
@@ -342,7 +342,7 @@ func (h *CCHubHandler) Config(c *gin.Context) {
 		mf = 3
 	}
 	c.JSON(http.StatusOK, contract.EnrollResponse{
-		CCDirectID:       "edge-u" + strconv.FormatInt(uid, 10),
+		CCDirectID:       "ccdirect-u" + strconv.FormatInt(uid, 10),
 		CCHubURL:         h.issuedCenterURL,
 		TokenSecret:      string(h.tokenSecret),
 		UpstreamProxy:    h.issuedProxy,
@@ -352,35 +352,35 @@ func (h *CCHubHandler) Config(c *gin.Context) {
 	})
 }
 
-// Register records an edge in the fleet (auto-detecting its egress IP).
+// Register records an ccdirect in the fleet (auto-detecting its egress IP).
 func (h *CCHubHandler) Register(c *gin.Context) {
 	var req contract.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.CCDirectID == "" {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
 	}
 	ip := req.EgressIP
 	if ip == "" {
 		ip = c.ClientIP()
 	}
-	h.edges.Register(req.CCDirectID, ip, req.Platforms)
+	h.ccdirects.Register(req.CCDirectID, ip, req.Platforms)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// Heartbeat keeps an edge marked live; 404 tells it to re-register.
+// Heartbeat keeps an ccdirect marked live; 404 tells it to re-register.
 func (h *CCHubHandler) Heartbeat(c *gin.Context) {
 	var req contract.HeartbeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.CCDirectID == "" {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
 	}
-	if !h.edges.Heartbeat(req.CCDirectID) {
-		edgeCenterError(c, http.StatusNotFound, "unknown_edge", "edge not registered")
+	if !h.ccdirects.Heartbeat(req.CCDirectID) {
+		ccHubError(c, http.StatusNotFound, "unknown_edge", "ccdirect not registered")
 		return
 	}
 	resp := contract.HeartbeatResponse{OK: true}
-	// Vouch for the edge with a fresh signed liveness token, UNLESS it is revoked
-	// — a revoked edge gets ok:true but no token, so it drains within the TTL.
+	// Vouch for the ccdirect with a fresh signed liveness token, UNLESS it is revoked
+	// — a revoked ccdirect gets ok:true but no token, so it drains within the TTL.
 	if h.livenessKey != nil && !h.isEdgeRevoked(req.CCDirectID) {
 		tok := contract.SignLiveness(h.livenessKey, req.CCDirectID, h.livenessTTL, time.Now)
 		resp.Liveness = &tok
@@ -388,9 +388,9 @@ func (h *CCHubHandler) Heartbeat(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Edges lists the live edge fleet (admin/observability).
-func (h *CCHubHandler) Edges(c *gin.Context) {
-	c.JSON(http.StatusOK, h.edges.Live())
+// CCDirects lists the live ccdirect fleet (admin/observability).
+func (h *CCHubHandler) CCDirects(c *gin.Context) {
+	c.JSON(http.StatusOK, h.ccdirects.Live())
 }
 
 // Report ingests a batched anomaly report from a ccdirect node and logs each
@@ -401,7 +401,7 @@ func (h *CCHubHandler) Edges(c *gin.Context) {
 func (h *CCHubHandler) Report(c *gin.Context) {
 	var req contract.ErrorReport
 	if err := c.ShouldBindJSON(&req); err != nil || req.CCDirectID == "" {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "edge_id required")
 		return
 	}
 	l := logger.L().With(zap.String("component", "handler.edge_center"))
@@ -417,12 +417,12 @@ func (h *CCHubHandler) Report(c *gin.Context) {
 	c.JSON(http.StatusOK, contract.ReportResponse{OK: true, Accepted: len(req.Items)})
 }
 
-// edgeOwnerUserID validates the edge owner's sub2api JWT (presented as
-// Authorization: Bearer <jwt>) and returns the owner user id. The edge holds the
+// ccdirectOwnerUserID validates the ccdirect owner's sub2api JWT (presented as
+// Authorization: Bearer <jwt>) and returns the owner user id. The ccdirect holds the
 // user's JWT + refresh token (sub2api's own auth system) and refreshes via
-// /api/v1/auth/refresh when the access token expires — no bespoke edge
+// /api/v1/auth/refresh when the access token expires — no bespoke ccdirect
 // credential. When no auth service is wired (PoC), ownership is not enforced.
-func (h *CCHubHandler) edgeOwnerUserID(c *gin.Context) (int64, error) {
+func (h *CCHubHandler) ccdirectOwnerUserID(c *gin.Context) (int64, error) {
 	if h.authService == nil {
 		return 0, nil
 	}
@@ -439,51 +439,51 @@ func (h *CCHubHandler) edgeOwnerUserID(c *gin.Context) (int64, error) {
 }
 
 var (
-	errEdgeNoJWT  = edgeCenterErr("edge owner JWT required (Authorization: Bearer)")
-	errEdgeBadJWT = edgeCenterErr("edge owner JWT invalid or expired")
+	errEdgeNoJWT  = ccHubErr("ccdirect owner JWT required (Authorization: Bearer)")
+	errEdgeBadJWT = ccHubErr("ccdirect owner JWT invalid or expired")
 )
 
 // Lease validates the sub2api API key, checks billing, selects a real account
 // (acquiring its concurrency slot), and returns the account + upstream token +
-// endpoint for the edge to use.
+// endpoint for the ccdirect to use.
 func (h *CCHubHandler) Lease(c *gin.Context) {
 	var req contract.LeaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode lease request")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "decode lease request")
 		return
 	}
 	if req.APIKey == "" || req.Model == "" {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "api_key and model are required")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "api_key and model are required")
 		return
 	}
 
 	ctx := c.Request.Context()
 
-	// 0. Edge owner: the edge presents its owner's sub2api JWT. We verify it
-	// (sub2api's own JWT system — no bespoke edge credential) and bind ownership.
-	ownerUserID, err := h.edgeOwnerUserID(c)
+	// 0. CCDirect owner: the ccdirect presents its owner's sub2api JWT. We verify it
+	// (sub2api's own JWT system — no bespoke ccdirect credential) and bind ownership.
+	ownerUserID, err := h.ccdirectOwnerUserID(c)
 	if err != nil {
-		edgeCenterError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
+		ccHubError(c, http.StatusUnauthorized, "edge_unauthenticated", err.Error())
 		return
 	}
 
 	// 1. Authenticate the sub2api key -> user + group (same as the gateway).
 	apiKey, user, err := h.apiKeyService.ValidateKey(ctx, req.APIKey)
 	if err != nil {
-		edgeCenterError(c, http.StatusUnauthorized, "authentication_error", "invalid api key")
+		ccHubError(c, http.StatusUnauthorized, "authentication_error", "invalid api key")
 		return
 	}
 	if apiKey.GroupID == nil {
-		edgeCenterError(c, http.StatusForbidden, "forbidden", "api key has no group assigned")
+		ccHubError(c, http.StatusForbidden, "forbidden", "api key has no group assigned")
 		return
 	}
 
-	// 1b. Owner enforcement: an edge only serves its OWNER's api keys. A key
-	// belonging to a different user is rejected — the edge is a per-user egress,
+	// 1b. Owner enforcement: an ccdirect only serves its OWNER's api keys. A key
+	// belonging to a different user is rejected — the ccdirect is a per-user egress,
 	// not a shared data plane. (ownerUserID == 0 means enforcement disabled, e.g.
 	// no auth service wired in the PoC.)
 	if ownerUserID != 0 && apiKey.UserID != ownerUserID {
-		edgeCenterError(c, http.StatusForbidden, "not_owner", "api key does not belong to this edge's owner")
+		ccHubError(c, http.StatusForbidden, "not_owner", "api key does not belong to this ccdirect's owner")
 		return
 	}
 
@@ -493,14 +493,14 @@ func (h *CCHubHandler) Lease(c *gin.Context) {
 		platform = apiKey.Group.Platform
 	}
 	if err := h.billingService.CheckBillingEligibility(ctx, user, apiKey, apiKey.Group, nil, platform); err != nil {
-		edgeCenterError(c, http.StatusPaymentRequired, "billing_ineligible", err.Error())
+		ccHubError(c, http.StatusPaymentRequired, "billing_ineligible", err.Error())
 		return
 	}
 
 	// 3. Load-aware account selection (acquires a concurrency slot).
 	sel, err := h.gatewayService.SelectAccountWithLoadAwareness(ctx, apiKey.GroupID, req.SessionHash, req.Model, nil, "", user.ID)
 	if err != nil || sel == nil || sel.Account == nil {
-		edgeCenterError(c, http.StatusServiceUnavailable, "no_account", "no schedulable account")
+		ccHubError(c, http.StatusServiceUnavailable, "no_account", "no schedulable account")
 		return
 	}
 
@@ -509,28 +509,28 @@ func (h *CCHubHandler) Lease(c *gin.Context) {
 		release = func() {}
 	}
 	if !sel.Acquired {
-		// We do not wait at the center; the edge can retry. Release any
+		// We do not wait at the center; the ccdirect can retry. Release any
 		// background wait reservation and report capacity exhaustion.
 		release()
-		edgeCenterError(c, http.StatusTooManyRequests, "rate_limited", "account at capacity")
+		ccHubError(c, http.StatusTooManyRequests, "rate_limited", "account at capacity")
 		return
 	}
 
 	cand, err := h.candidateFromAccount(ctx, sel.Account)
 	if err != nil {
 		release()
-		edgeCenterError(c, http.StatusServiceUnavailable, "no_account", err.Error())
+		ccHubError(c, http.StatusServiceUnavailable, "no_account", err.Error())
 		return
 	}
 
-	// Seal the upstream token bound to this edge + a short TTL (MANDATORY: the
-	// lease token is never returned raw). The edge opens it with the seal secret
+	// Seal the upstream token bound to this ccdirect + a short TTL (MANDATORY: the
+	// lease token is never returned raw). The ccdirect opens it with the seal secret
 	// it received at enroll.
 	if cand.LeaseToken != "" {
 		sealed, sErr := contract.SealLeaseToken(cand.LeaseToken, req.CCDirectID, h.tokenTTL, h.tokenSecret, time.Now)
 		if sErr != nil {
 			release()
-			edgeCenterError(c, http.StatusInternalServerError, "seal_failed", sErr.Error())
+			ccHubError(c, http.StatusInternalServerError, "seal_failed", sErr.Error())
 			return
 		}
 		cand.LeaseToken = sealed
@@ -562,7 +562,7 @@ func (h *CCHubHandler) Lease(c *gin.Context) {
 func (h *CCHubHandler) Settle(c *gin.Context) {
 	var req contract.SettleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		edgeCenterError(c, http.StatusBadRequest, "invalid_request", "decode settle request")
+		ccHubError(c, http.StatusBadRequest, "invalid_request", "decode settle request")
 		return
 	}
 
@@ -595,7 +595,7 @@ func (h *CCHubHandler) Settle(c *gin.Context) {
 	})
 }
 
-// recordSettleUsage builds a ForwardResult from the edge-reported tokens and
+// recordSettleUsage builds a ForwardResult from the ccdirect-reported tokens and
 // records it through sub2api's GatewayService.RecordUsage (per-account + per-
 // apikey usage, pricing, quota deduction). Runs synchronously on a background
 // context so it is independent of the settle request's lifetime.
@@ -628,15 +628,15 @@ func (h *CCHubHandler) recordSettleUsage(slot *leasedSlot, req contract.SettleRe
 	}
 }
 
-// candidateFromAccount maps a real sub2api Account to an edge Candidate. It
+// candidateFromAccount maps a real sub2api Account to an ccdirect Candidate. It
 // resolves the access token the SAME way the gateway does — via the existing
 // public GatewayService.GetAccessToken — so it is agnostic to whether the
 // account is a fixed API key (token == the key, tokenType "apikey") or OAuth
-// (refreshed token, tokenType "oauth"). The edge never perceives that
+// (refreshed token, tokenType "oauth"). The ccdirect never perceives that
 // difference; it only consumes the resolved access_token + endpoint + auth.
 //
 // Note: this calls only EXISTING public sub2api APIs and lives entirely in the
-// edge extension — no sub2api core file is modified, so the fork stays
+// ccdirect extension — no sub2api core file is modified, so the fork stays
 // upstream-upgradeable.
 func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (contract.Candidate, error) {
 	// Resolve the access token via sub2api's existing public method — agnostic to
@@ -648,7 +648,7 @@ func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Ac
 	}
 	if token == "" {
 		// Empty token => not a bearer-style credential (e.g. bedrock /
-		// service_account): not servable through the edge.
+		// service_account): not servable through the ccdirect.
 		return contract.Candidate{}, errEdgeUnsupportedType
 	}
 
@@ -669,9 +669,9 @@ func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Ac
 		return contract.Candidate{}, errEdgeNoBaseURL
 	}
 
-	// No new auth "scheme": the edge presents the credential as Authorization:
+	// No new auth "scheme": the ccdirect presents the credential as Authorization:
 	// Bearer <token> (the protocol sub2api / MiMo-compatible upstreams + OpenAI +
-	// OAuth all use) and otherwise relays the client request unchanged. The edge
+	// OAuth all use) and otherwise relays the client request unchanged. The ccdirect
 	// is just one more way to execute an account; the only new surface is
 	// lease/settle. (AuthScheme zero value == Authorization: Bearer.)
 	return contract.Candidate{
@@ -684,15 +684,15 @@ func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Ac
 }
 
 var (
-	errEdgeNoBaseURL       = edgeCenterErr("account has no upstream base url")
-	errEdgeUnsupportedType = edgeCenterErr("account type not yet supported via edge")
+	errEdgeNoBaseURL       = ccHubErr("account has no upstream base url")
+	errEdgeUnsupportedType = ccHubErr("account type not yet supported via ccdirect")
 )
 
-type edgeCenterErr string
+type ccHubErr string
 
-func (e edgeCenterErr) Error() string { return string(e) }
+func (e ccHubErr) Error() string { return string(e) }
 
-func edgeCenterError(c *gin.Context, status int, code, msg string) {
+func ccHubError(c *gin.Context, status int, code, msg string) {
 	logger.L().With(zap.String("component", "handler.edge_center")).Debug("edge_center.error",
 		zap.Int("status", status), zap.String("code", code), zap.String("message", msg))
 	c.JSON(status, gin.H{"error": gin.H{"code": code, "message": msg}})

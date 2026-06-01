@@ -30,7 +30,7 @@ func mkCA(t *testing.T) ([]byte, *x509.Certificate, *ecdsa.PrivateKey) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "edge-ca"},
+		Subject:               pkix.Name{CommonName: "ccdirect-ca"},
 		NotBefore:             time.Unix(1_700_000_000, 0),
 		NotAfter:              time.Unix(1_900_000_000, 0),
 		IsCA:                  true,
@@ -52,7 +52,7 @@ func mkClientCertPEM(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.Privat
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "edge-1"},
+		Subject:      pkix.Name{CommonName: "ccdirect-1"},
 		NotBefore:    time.Unix(1_700_000_000, 0),
 		NotAfter:     time.Unix(1_900_000_000, 0),
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
@@ -83,8 +83,8 @@ func newGuardWithCA(t *testing.T, caPEM []byte) *CCDirectMTLSGuard {
 func runGuard(g *CCDirectMTLSGuard, setup func(*http.Request)) int {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/edge/v1/lease", g.Middleware(), func(c *gin.Context) { c.Status(http.StatusOK) })
-	req := httptest.NewRequest(http.MethodPost, "/edge/v1/lease", nil)
+	r.POST("/ccdirect/v1/lease", g.Middleware(), func(c *gin.Context) { c.Status(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodPost, "/ccdirect/v1/lease", nil)
 	if setup != nil {
 		setup(req)
 	}
