@@ -74,6 +74,7 @@ type CCHubHandler struct {
 	issuedCenterURL   string
 	issuedHeartbeat   int
 	issuedMaxFailover int
+	issuedUpgrade     int
 	issuedPlatforms   []string
 	enrollKeys        map[string]struct{}
 	enrollSeq         int64
@@ -84,12 +85,21 @@ type CCHubHandler struct {
 
 // SetEnrollConfig sets what the center issues to enrolling ccdirects (egress proxy
 // is included so the ccdirect's stable-IP egress is center-controlled, not local).
-func (h *CCHubHandler) SetEnrollConfig(cchubURL, upstreamProxy string, heartbeatSeconds, maxFailover int, platforms []string) {
+func (h *CCHubHandler) SetEnrollConfig(cchubURL, upstreamProxy string, heartbeatSeconds, maxFailover, upgradeIntervalSeconds int, platforms []string) {
 	h.issuedCenterURL = cchubURL
 	h.issuedProxy = upstreamProxy
 	h.issuedHeartbeat = heartbeatSeconds
 	h.issuedMaxFailover = maxFailover
+	h.issuedUpgrade = upgradeIntervalSeconds
 	h.issuedPlatforms = append([]string(nil), platforms...)
+}
+
+// issuedUpgradeSeconds defaults the pushed self-update cadence to 6h when unset.
+func issuedUpgradeSeconds(v int) int {
+	if v <= 0 {
+		return 21600
+	}
+	return v
 }
 
 // SetEnrollKeys restricts enroll/register to these keys (empty = accept any).
@@ -306,13 +316,14 @@ func (h *CCHubHandler) Enroll(c *gin.Context) {
 		mf = 3
 	}
 	c.JSON(http.StatusOK, contract.EnrollResponse{
-		CCDirectID:       ccdirectID,
-		CCHubURL:         h.issuedCenterURL,
-		TokenSecret:      string(h.tokenSecret),
-		UpstreamProxy:    h.issuedProxy,
-		HeartbeatSeconds: hb,
-		MaxFailover:      mf,
-		Platforms:        append([]string(nil), h.issuedPlatforms...),
+		CCDirectID:             ccdirectID,
+		CCHubURL:               h.issuedCenterURL,
+		TokenSecret:            string(h.tokenSecret),
+		UpstreamProxy:          h.issuedProxy,
+		HeartbeatSeconds:       hb,
+		MaxFailover:            mf,
+		UpgradeIntervalSeconds: issuedUpgradeSeconds(h.issuedUpgrade),
+		Platforms:              append([]string(nil), h.issuedPlatforms...),
 	})
 }
 
@@ -342,13 +353,14 @@ func (h *CCHubHandler) Config(c *gin.Context) {
 		mf = 3
 	}
 	c.JSON(http.StatusOK, contract.EnrollResponse{
-		CCDirectID:       "ccdirect-u" + strconv.FormatInt(uid, 10),
-		CCHubURL:         h.issuedCenterURL,
-		TokenSecret:      string(h.tokenSecret),
-		UpstreamProxy:    h.issuedProxy,
-		HeartbeatSeconds: hb,
-		MaxFailover:      mf,
-		Platforms:        append([]string(nil), h.issuedPlatforms...),
+		CCDirectID:             "ccdirect-u" + strconv.FormatInt(uid, 10),
+		CCHubURL:               h.issuedCenterURL,
+		TokenSecret:            string(h.tokenSecret),
+		UpstreamProxy:          h.issuedProxy,
+		HeartbeatSeconds:       hb,
+		MaxFailover:            mf,
+		UpgradeIntervalSeconds: issuedUpgradeSeconds(h.issuedUpgrade),
+		Platforms:              append([]string(nil), h.issuedPlatforms...),
 	})
 }
 
