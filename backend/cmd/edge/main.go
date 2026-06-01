@@ -9,6 +9,19 @@
 //	  /status               # owner, center, edge id, listen addr, token validity
 //	  /quit                 # graceful shutdown
 //
+// For an unattended, long-lived service, run it as a daemon under launchd (#16):
+//
+//	edge daemon install     # write + load a KeepAlive LaunchAgent (macOS)
+//	edge daemon status      # launchd load state + relay status over the socket
+//	edge daemon uninstall   # unload + remove the LaunchAgent
+//	edge daemon [run]       # run headless in the foreground (what launchd execs)
+//
+// When a daemon is running, a plain `edge` attaches to it as a thin client: the
+// console's /login, /logout and /status are routed to the daemon over a Unix
+// control socket next to the session file; the daemon periodically self-updates
+// (verifying cchub's signed release) and exits so launchd restarts it on the new
+// binary.
+//
 // Login uses loopback + PKCE + a per-machine device key: the console opens the
 // browser to the center's /cli/authorize page (already logged in there); on
 // approval the authorization code is delivered to a localhost callback server,

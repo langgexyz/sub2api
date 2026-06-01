@@ -24,8 +24,14 @@ func runDaemonCommand(args []string) {
 	switch sub {
 	case "run":
 		runDaemon(args)
+	case "install":
+		runDaemonInstall(args)
+	case "uninstall":
+		runDaemonUninstall(args)
+	case "status":
+		runDaemonStatus(args)
 	default:
-		log.Fatalf("edge daemon: unknown subcommand %q (want: run)", sub)
+		log.Fatalf("edge daemon: unknown subcommand %q (want: run|install|uninstall|status)", sub)
 	}
 }
 
