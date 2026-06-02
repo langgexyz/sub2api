@@ -528,18 +528,22 @@ func (h *CCHubHandler) Lease(c *gin.Context) {
 		return
 	}
 
-	cand, err := h.candidateFromAccount(ctx, sel.Account)
+	cand, proxyURL, err := h.candidateFromAccount(ctx, sel.Account)
 	if err != nil {
 		release()
 		ccHubError(c, http.StatusServiceUnavailable, "no_account", err.Error())
 		return
 	}
 
-	// Seal the upstream token bound to this ccdirect + a short TTL (MANDATORY: the
-	// lease token is never returned raw). The ccdirect opens it with the seal secret
-	// it received at enroll.
+	// Seal the upstream bearer AND the account's bound egress proxy URL into the
+	// lease token, bound to this ccdirect + a short TTL (MANDATORY: never returned
+	// raw; the proxy URL must not leak on the wire since it can embed user:pass).
+	// The ccdirect opens it with the seal secret it got at enroll and egresses the
+	// account through its bound proxy — same upstream IP identity as the central path.
 	if cand.LeaseToken != "" {
-		sealed, sErr := contract.SealLeaseToken(cand.LeaseToken, req.CCDirectID, h.tokenTTL, h.tokenSecret, time.Now)
+		sealed, sErr := contract.SealLeaseSecret(
+			contract.LeaseSecret{Bearer: cand.LeaseToken, ProxyURL: proxyURL},
+			req.CCDirectID, h.tokenTTL, h.tokenSecret, time.Now)
 		if sErr != nil {
 			release()
 			ccHubError(c, http.StatusInternalServerError, "seal_failed", sErr.Error())
@@ -650,18 +654,27 @@ func (h *CCHubHandler) recordSettleUsage(slot *leasedSlot, req contract.SettleRe
 // Note: this calls only EXISTING public sub2api APIs and lives entirely in the
 // ccdirect extension — no sub2api core file is modified, so the fork stays
 // upstream-upgradeable.
-func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (contract.Candidate, error) {
+func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Account) (contract.Candidate, string, error) {
 	// Resolve the access token via sub2api's existing public method — agnostic to
 	// fixed-key vs OAuth (for a fixed-key account the token IS the api key; for
 	// OAuth it is the refreshed access token).
 	token, _, err := h.gatewayService.GetAccessToken(ctx, acc)
 	if err != nil {
-		return contract.Candidate{}, err
+		return contract.Candidate{}, "", err
 	}
 	if token == "" {
 		// Empty token => not a bearer-style credential (e.g. bedrock /
 		// service_account): not servable through the ccdirect.
-		return contract.Candidate{}, errEdgeUnsupportedType
+		return contract.Candidate{}, "", errEdgeUnsupportedType
+	}
+
+	// The account's bound egress proxy — resolved the SAME way the central gateway
+	// does (account.Proxy.URL(), preloaded by SelectAccountWithLoadAwareness). It
+	// is sealed into the lease token so the ccdirect egresses through this proxy
+	// (consistent upstream IP identity); empty => direct/fallback at the ccdirect.
+	var proxyURL string
+	if acc.ProxyID != nil && acc.Proxy != nil {
+		proxyURL = acc.Proxy.URL()
 	}
 
 	// The upstream base URL is account configuration provided when the account is
@@ -678,7 +691,7 @@ func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Ac
 		base = acc.GetBaseURL()
 	}
 	if base == "" {
-		return contract.Candidate{}, errEdgeNoBaseURL
+		return contract.Candidate{}, "", errEdgeNoBaseURL
 	}
 
 	// No new auth "scheme": the ccdirect presents the credential as Authorization:
@@ -692,7 +705,7 @@ func (h *CCHubHandler) candidateFromAccount(ctx context.Context, acc *service.Ac
 		UpstreamBaseURL: base,
 		LeaseToken:      token,
 		ModelMapping:    acc.GetModelMapping(),
-	}, nil
+	}, proxyURL, nil
 }
 
 var (

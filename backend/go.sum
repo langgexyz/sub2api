@@ -211,6 +211,8 @@ github.com/langgexyz/ccgw v0.0.0-20260601071623-29c054bca5cd h1:rhAlEny+giZb/i8J
 github.com/langgexyz/ccgw v0.0.0-20260601071623-29c054bca5cd/go.mod h1:NI7kxNq8LJEr9Avv0UNqSgMBYK9KlaVvk/cfLwVkg5Y=
 github.com/langgexyz/ccgw v0.0.0-20260601080026-46f6ac8e48d4 h1:4ourpHw1jeCADpXlPiqVWTQcQEskjPAPQgLW08lItrU=
 github.com/langgexyz/ccgw v0.0.0-20260601080026-46f6ac8e48d4/go.mod h1:NI7kxNq8LJEr9Avv0UNqSgMBYK9KlaVvk/cfLwVkg5Y=
+github.com/langgexyz/ccgw v0.0.0-20260602022524-bb04ba51b710 h1:wdqni5StyfC3Ghh1Mn9MD2get0hVZ8ejTf0xxz5x7HY=
+github.com/langgexyz/ccgw v0.0.0-20260602022524-bb04ba51b710/go.mod h1:NI7kxNq8LJEr9Avv0UNqSgMBYK9KlaVvk/cfLwVkg5Y=
 github.com/leodido/go-urn v1.2.4 h1:XlAE/cm/ms7TE/VMVoduSpNBoyc2dOxHs5MZSwAN63Q=
 github.com/leodido/go-urn v1.2.4/go.mod h1:7ZrI8mTSeBSHl/UaRyKQW1qZeMgak41ANeCNaVckg+4=
 github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
