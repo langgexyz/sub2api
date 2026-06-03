@@ -240,7 +240,8 @@ const primaryEmailDisplay = computed(() => {
     return ''
   }
   if (email.endsWith('.invalid') && !isEmailBound(props.user)) {
-    return ''
+    // 第三方登录的合成邮箱不是真实邮箱，不展示，改提示无独立邮箱。
+    return t('profile.noStandaloneEmail')
   }
   return email
 })

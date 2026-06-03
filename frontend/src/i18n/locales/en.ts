@@ -1169,6 +1169,7 @@ export default {
     user: 'User',
     username: 'Username',
     email: 'Email',
+    noStandaloneEmail: 'Third-party login · no standalone email',
     status: 'Status',
     role: 'Role',
     enterUsername: 'Enter username',

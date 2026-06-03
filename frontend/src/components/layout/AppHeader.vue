@@ -102,7 +102,7 @@
                 <div class="text-sm font-medium text-gray-900 dark:text-white">
                   {{ displayName }}
                 </div>
-                <div class="text-xs text-gray-500 dark:text-dark-400">{{ user.email }}</div>
+                <div class="text-xs text-gray-500 dark:text-dark-400">{{ emailDisplay }}</div>
               </div>
 
               <!-- Balance (mobile only) -->
@@ -260,6 +260,17 @@ const userInitials = computed(() => {
 const displayName = computed(() => {
   if (!user.value) return ''
   return user.value.username || user.value.email?.split('@')[0] || ''
+})
+
+// 第三方登录(GitHub/OIDC 等)用户用合成邮箱 *@*.invalid 当身份键，不是真实邮箱，
+// 不展示给用户看；改提示"通过第三方登录 · 无独立邮箱"。
+const emailDisplay = computed(() => {
+  const email = user.value?.email?.trim() || ''
+  if (!email) return ''
+  if (email.endsWith('.invalid') && user.value?.email_bound !== true) {
+    return t('profile.noStandaloneEmail')
+  }
+  return email
 })
 
 const pageTitle = computed(() => {
