@@ -470,7 +470,9 @@ const providerItems = computed(() => [
     canUnbind: Boolean(getBindingStatus('wechat') && getBindingDetails('wechat')?.can_unbind),
     details: getBindingDetails('wechat'),
   },
-])
+  // 只展示「已绑定」或「可绑定(该 provider 已启用)」的登录方式；未启用且未绑定的隐藏。
+  // GitHub-only 下：邮箱/LinuxDo/钉钉/微信 未启用未绑定 → 自动隐藏，只剩 GitHub。
+].filter((item) => item.bound || item.canBind))
 
 function providerInitial(provider: UserAuthProvider): string {
   if (provider === 'linuxdo') {

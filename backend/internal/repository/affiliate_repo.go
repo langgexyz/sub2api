@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	affiliateCodeLength      = 12
+	affiliateCodeLength      = 6
 	affiliateCodeMaxAttempts = 12
 )
 
@@ -119,16 +119,19 @@ func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, invite
 		return false, nil
 	}
 
+	// 返利改为自动直接进入邀请人的账户余额（不再记入 aff_quota 待手动转入）。
+	// freezeHours 参数保留在签名里以兼容接口，但自动进余额模式下不再冻结；
+	// 仅累计 aff_history_quota（历史返利总额，用于展示统计），并写入一条
+	// action='accrue' 的台账记录，使返利明细列表照常工作。
 	var applied bool
 	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
-		// freezeHours > 0: add to frozen quota; == 0: add to available quota directly
-		var updateSQL string
-		if freezeHours > 0 {
-			updateSQL = "UPDATE user_affiliates SET aff_frozen_quota = aff_frozen_quota + $1, aff_history_quota = aff_history_quota + $1, updated_at = NOW() WHERE user_id = $2"
-		} else {
-			updateSQL = "UPDATE user_affiliates SET aff_quota = aff_quota + $1, aff_history_quota = aff_history_quota + $1, updated_at = NOW() WHERE user_id = $2"
+		// 确保邀请人的 user_affiliates 记录存在，再累计历史返利总额。
+		if _, err := ensureUserAffiliateWithClient(txCtx, txClient, inviterID); err != nil {
+			return err
 		}
-		res, err := txClient.ExecContext(txCtx, updateSQL, amount, inviterID)
+		res, err := txClient.ExecContext(txCtx,
+			"UPDATE user_affiliates SET aff_history_quota = aff_history_quota + $1, updated_at = NOW() WHERE user_id = $2",
+			amount, inviterID)
 		if err != nil {
 			return err
 		}
@@ -138,19 +141,23 @@ func (r *affiliateRepository) AccrueQuota(ctx context.Context, inviterID, invite
 			return nil
 		}
 
-		if freezeHours > 0 {
-			if _, err = txClient.ExecContext(txCtx, `
-INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, frozen_until, created_at, updated_at)
-VALUES ($1, 'accrue', $2, $3, $4, NOW() + make_interval(hours => $5), NOW(), NOW())`,
-				inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID), freezeHours); err != nil {
-				return fmt.Errorf("insert affiliate accrue ledger: %w", err)
-			}
-		} else {
-			if _, err = txClient.ExecContext(txCtx, `
+		// 直接给邀请人加余额（复用 ent 的 AddBalance，与 TransferQuotaToBalance 一致）。
+		credited, err := txClient.User.Update().
+			Where(user.IDEQ(inviterID)).
+			AddBalance(amount).
+			AddTotalRecharged(amount).
+			Save(txCtx)
+		if err != nil {
+			return fmt.Errorf("credit inviter balance by affiliate rebate: %w", err)
+		}
+		if credited == 0 {
+			return service.ErrUserNotFound
+		}
+
+		if _, err = txClient.ExecContext(txCtx, `
 INSERT INTO user_affiliate_ledger (user_id, action, amount, source_user_id, source_order_id, created_at, updated_at)
 VALUES ($1, 'accrue', $2, $3, $4, NOW(), NOW())`, inviterID, amount, inviteeUserID, nullableInt64Arg(sourceOrderID)); err != nil {
-				return fmt.Errorf("insert affiliate accrue ledger: %w", err)
-			}
+			return fmt.Errorf("insert affiliate accrue ledger: %w", err)
 		}
 
 		applied = true
