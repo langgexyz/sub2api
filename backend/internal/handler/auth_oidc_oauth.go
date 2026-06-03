@@ -472,6 +472,44 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 		}
 	}
 
+	// 纯三方登录（上游无可验证真实邮箱时 compatEmailUser 必为 nil）+ 已开邀请码：
+	// 直接进"只填邀请码"流程，不展示"绑定/建号(收邮箱+密码+验证码)"choice 页。
+	// choice 页的建号会落到 RegisterOAuthEmailAccount，那条无条件要求邮箱验证码——
+	// 私密邮箱(合成 @oidc-connect.invalid 收不到码)+ SMTP 未通时根本走不通。
+	// 这里产出 error=invitation_required 的 session（不带 step，避免 CompleteOIDCOAuthRegistration
+	// 的 legacyCompleteRegistrationSessionStatus 把它当待办 choice 弹回）：
+	// exchange 读到 error → 前端 needsInvitation 只显示邀请码框 → handleSubmitInvitation →
+	// CompleteOIDCOAuthRegistration → LoginOrRegisterOAuthWithTokenPair（合成邮箱 + 邀请码 +
+	// 随机密码 + 绑定身份 + 直接登录）。已二次登录走上面 existingIdentityUser 直登，不再要邀请码。
+	if compatEmailUser == nil &&
+		!h.isForceEmailOnThirdPartySignup(c.Request.Context()) &&
+		h.settingSvc != nil && h.settingSvc.IsInvitationCodeEnabled(c.Request.Context()) {
+		completionResponse := map[string]any{
+			"error":                  "invitation_required",
+			"choice_reason":          "invitation_required",
+			"invitation_required":    true,
+			"adoption_required":      true,
+			"create_account_allowed": true,
+			"redirect":               strings.TrimSpace(redirectTo),
+			"email":                  email,
+			"resolved_email":         email,
+		}
+		if err := h.createOAuthPendingSession(c, oauthPendingSessionPayload{
+			Intent:                 oauthIntentLogin,
+			Identity:               identityRef,
+			ResolvedEmail:          email,
+			RedirectTo:             redirectTo,
+			BrowserSessionKey:      browserSessionKey,
+			UpstreamIdentityClaims: upstreamClaims,
+			CompletionResponse:     completionResponse,
+		}); err != nil {
+			redirectOAuthError(c, frontendCallback, "session_error", "failed to continue oauth login", "")
+			return
+		}
+		redirectToFrontendCallback(c, frontendCallback)
+		return
+	}
+
 	if h.isForceEmailOnThirdPartySignup(c.Request.Context()) {
 		if err := h.createOIDCOAuthChoicePendingSession(
 			c,
