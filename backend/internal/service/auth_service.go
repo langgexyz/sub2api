@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrInvalidCredentials      = infraerrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password")
+	ErrEmailLoginDisabled      = infraerrors.Forbidden("EMAIL_LOGIN_DISABLED", "email login is disabled; please sign in with GitHub")
 	ErrUserNotActive           = infraerrors.Forbidden("USER_NOT_ACTIVE", "user is not active")
 	ErrEmailExists             = infraerrors.Conflict("EMAIL_EXISTS", "email already exists")
 	ErrEmailReserved           = infraerrors.BadRequest("EMAIL_RESERVED", "email is reserved")
@@ -138,6 +139,11 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	// 检查是否开放注册（默认关闭：settingService 未配置时不允许注册）
 	if s.settingService == nil || !s.settingService.IsRegistrationEnabled(ctx) {
 		return "", nil, ErrRegDisabled
+	}
+
+	// 关闭邮箱登录时，邮箱注册一并关闭（只能走 OAuth 注册）。
+	if s.settingService != nil && s.settingService.IsEmailLoginDisabled(ctx) {
+		return "", nil, ErrEmailLoginDisabled
 	}
 
 	// 防止用户注册 LinuxDo OAuth 合成邮箱，避免第三方登录与本地账号发生碰撞。
@@ -457,6 +463,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	// 验证密码
 	if !s.CheckPassword(password, user.PasswordHash) {
 		return "", nil, ErrInvalidCredentials
+	}
+
+	// 关闭邮箱登录时，只有 admin 能继续（应急后门，防 OAuth 故障锁死），普通用户必须走 OAuth。
+	if s.settingService != nil && s.settingService.IsEmailLoginDisabled(ctx) && user.Role != RoleAdmin {
+		return "", nil, ErrEmailLoginDisabled
 	}
 
 	// 检查用户状态

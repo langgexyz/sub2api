@@ -485,6 +485,12 @@ onMounted(async () => {
     promoCodeEnabled.value = settings.promo_code_enabled
     invitationCodeEnabled.value = settings.invitation_code_enabled
     requireAffiliateCode.value = settings.registration_require_affiliate_code === true
+    // 关闭邮箱登录时，邮箱注册也关闭——注册改走登录页的 GitHub 授权；
+    // 把分享链接的 ?aff= 一并带到登录页（在那存起来，GitHub 授权回来自动带上）。
+    if (settings.disable_email_login === true) {
+      await router.replace({ path: '/login', query: route.query })
+      return
+    }
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'

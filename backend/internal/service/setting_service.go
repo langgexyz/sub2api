@@ -2370,6 +2370,15 @@ func (s *SettingService) IsRegistrationRequireAffiliateCode(ctx context.Context)
 	return value == "true"
 }
 
+// IsEmailLoginDisabled 是否关闭邮箱+密码登录/注册（开启后只能走 OAuth；admin 仍可邮箱登录作后门）。
+func (s *SettingService) IsEmailLoginDisabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyDisableEmailLogin)
+	if err != nil {
+		return false // 默认不关闭
+	}
+	return value == "true"
+}
+
 // GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
 func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
