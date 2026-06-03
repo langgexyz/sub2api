@@ -267,6 +267,7 @@ type PublicSettings struct {
 	PromoCodeEnabled                 bool                     `json:"promo_code_enabled"`
 	PasswordResetEnabled             bool                     `json:"password_reset_enabled"`
 	InvitationCodeEnabled            bool                     `json:"invitation_code_enabled"`
+	RegistrationRequireAffiliateCode bool                     `json:"registration_require_affiliate_code"` // 门票式裂变：注册必须填邀请码
 	TotpEnabled                      bool                     `json:"totp_enabled"` // TOTP 双因素认证
 	LoginAgreementEnabled            bool                     `json:"login_agreement_enabled"`
 	LoginAgreementMode               string                   `json:"login_agreement_mode"`

@@ -14,6 +14,7 @@ import (
 var (
 	ErrAffiliateProfileNotFound = infraerrors.NotFound("AFFILIATE_PROFILE_NOT_FOUND", "affiliate profile not found")
 	ErrAffiliateCodeInvalid     = infraerrors.BadRequest("AFFILIATE_CODE_INVALID", "invalid affiliate code")
+	ErrAffiliateCodeRequired    = infraerrors.BadRequest("AFFILIATE_CODE_REQUIRED", "an invitation code is required to register")
 	ErrAffiliateCodeTaken       = infraerrors.Conflict("AFFILIATE_CODE_TAKEN", "affiliate code already in use")
 	ErrAffiliateAlreadyBound    = infraerrors.Conflict("AFFILIATE_ALREADY_BOUND", "affiliate inviter already bound")
 	ErrAffiliateQuotaEmpty      = infraerrors.BadRequest("AFFILIATE_QUOTA_EMPTY", "no affiliate quota available to transfer")
@@ -264,6 +265,25 @@ func (s *AffiliateService) GetAffiliateDetail(ctx context.Context, userID int64)
 		EffectiveRebateRatePercent: s.resolveRebateRatePercent(ctx, summary),
 		Invitees:                   invitees,
 	}, nil
+}
+
+// CodeExists 校验邀请码（affiliate 推荐码）是否对应一个有效邀请人，用于门票式裂变注册前置校验。
+func (s *AffiliateService) CodeExists(ctx context.Context, rawCode string) (bool, error) {
+	code := strings.ToUpper(strings.TrimSpace(rawCode))
+	if code == "" || !isValidAffiliateCodeFormat(code) {
+		return false, nil
+	}
+	if s == nil || s.repo == nil {
+		return false, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "affiliate service unavailable")
+	}
+	summary, err := s.repo.GetAffiliateByCode(ctx, code)
+	if err != nil {
+		if errors.Is(err, ErrAffiliateProfileNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return summary != nil && summary.UserID > 0, nil
 }
 
 func (s *AffiliateService) BindInviterByCode(ctx context.Context, userID int64, rawCode string) error {

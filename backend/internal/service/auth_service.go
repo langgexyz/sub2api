@@ -168,6 +168,11 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		invitationRedeemCode = redeemCode
 	}
 
+	// 门票式裂变：开启后注册必须填一个有效邀请码（= 别人的 affiliate 推荐码）。
+	if err := s.ensureRegistrationAffiliateGate(ctx, affiliateCode); err != nil {
+		return "", nil, err
+	}
+
 	// 检查是否需要邮件验证
 	if s.settingService != nil && s.settingService.IsEmailVerifyEnabled(ctx) {
 		// 如果邮件验证已开启但邮件服务未配置，拒绝注册
@@ -629,6 +634,11 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 				invitationRedeemCode = redeemCode
 			}
 
+			// 门票式裂变：开启后第三方注册同样必须填一个有效邀请码（affiliate 推荐码）。
+			if err := s.ensureRegistrationAffiliateGate(ctx, affiliateCode); err != nil {
+				return nil, nil, err
+			}
+
 			randomPassword, err := randomHexString(32)
 			if err != nil {
 				logger.LegacyPrintf("service.auth", "[Auth] Failed to generate random password for oauth signup: %v", err)
@@ -835,6 +845,30 @@ func authSourceSignupSettings(defaults *AuthSourceDefaultSettings, signupSource 
 	default:
 		return ProviderDefaultGrantSettings{}, false
 	}
+}
+
+// ensureRegistrationAffiliateGate 门票式裂变前置校验：开启 registration_require_affiliate_code 时，
+// 注册必须带一个有效邀请码（= 别人的 affiliate 推荐码）。空码→required；解析不到→invalid。
+// 实际的上下级绑定仍由后续 bindOAuthAffiliate / BindInviterByCode 完成（需要 userID）。
+func (s *AuthService) ensureRegistrationAffiliateGate(ctx context.Context, affiliateCode string) error {
+	if s.settingService == nil || !s.settingService.IsRegistrationRequireAffiliateCode(ctx) {
+		return nil
+	}
+	code := strings.TrimSpace(affiliateCode)
+	if code == "" {
+		return ErrAffiliateCodeRequired
+	}
+	if s.affiliateService == nil {
+		return ErrServiceUnavailable
+	}
+	ok, err := s.affiliateService.CodeExists(ctx, code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrAffiliateCodeInvalid
+	}
+	return nil
 }
 
 // bindOAuthAffiliate initializes the affiliate profile and binds the inviter

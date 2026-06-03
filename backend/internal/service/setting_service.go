@@ -2361,6 +2361,15 @@ func (s *SettingService) IsInvitationCodeEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+// IsRegistrationRequireAffiliateCode 门票式裂变：注册是否必须填有效邀请码（affiliate 推荐码）。
+func (s *SettingService) IsRegistrationRequireAffiliateCode(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationRequireAffiliateCode)
+	if err != nil {
+		return false // 默认关闭
+	}
+	return value == "true"
+}
+
 // GetCustomMenuItemsRaw returns the raw JSON string of custom_menu_items setting.
 func (s *SettingService) GetCustomMenuItemsRaw(ctx context.Context) string {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyCustomMenuItems)
