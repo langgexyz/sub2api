@@ -31,13 +31,9 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== Public Routes ====================
   {
+    // 不要 landing 页：未登录 → /login（显示登录页）；已登录访问 /login 时 beforeEach 自动跳后台。
     path: '/home',
-    name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
-    meta: {
-      requiresAuth: false,
-      title: 'Home'
-    }
+    redirect: '/login'
   },
   {
     path: '/login',
@@ -195,7 +191,7 @@ const routes: RouteRecordRaw[] = [
   // ==================== User Routes ====================
   {
     path: '/',
-    redirect: '/home'
+    redirect: '/login'
   },
   {
     path: '/dashboard',
