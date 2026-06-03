@@ -129,6 +129,9 @@ const (
 	SettingKeyPasswordResetEnabled             = "password_reset_enabled"              // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                      = "frontend_url"                        // 前端基础URL，用于生成邮件中的重置密码链接
 	SettingKeyInvitationCodeEnabled            = "invitation_code_enabled"             // 是否启用邀请码注册
+	// SettingKeyDisableEmailLogin：关闭邮箱+密码登录/注册（原子能力）。开启后只能走 OAuth（如 GitHub）；
+	// admin 角色保留邮箱登录作应急后门，避免 OAuth 故障把自己锁死。各 OAuth 仍由各自 enable flag 控制。
+	SettingKeyDisableEmailLogin                = "disable_email_login"
 	// SettingKeyRegistrationRequireAffiliateCode：门票式裂变开关——开启后注册必须填一个有效的
 	// 邀请码（= 别人的 affiliate 推荐码），既当注册门票又绑定上下级，admin 的 vanity 码作种子裂变。
 	SettingKeyRegistrationRequireAffiliateCode = "registration_require_affiliate_code"

@@ -621,6 +621,10 @@ async function finalizePendingAccountResponse(completion: PendingOidcCompletion)
   if (completion.error === 'invitation_required') {
     pendingAccountAction.value = 'none'
     needsInvitation.value = true
+    // 分享链接带来的邀请码（?aff=）自动预填，用户点一下"完成注册"即可，无需手输。
+    if (!invitationCode.value.trim()) {
+      invitationCode.value = loadOAuthAffiliateCode()
+    }
     needsAdoptionConfirmation.value = false
     isProcessing.value = false
     persistPendingAuthSession(redirect)

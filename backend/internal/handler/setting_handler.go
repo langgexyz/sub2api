@@ -51,6 +51,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		PasswordResetEnabled:             settings.PasswordResetEnabled,
 		InvitationCodeEnabled:            settings.InvitationCodeEnabled,
 		RegistrationRequireAffiliateCode: h.settingService.IsRegistrationRequireAffiliateCode(c.Request.Context()),
+		DisableEmailLogin:                h.settingService.IsEmailLoginDisabled(c.Request.Context()),
 		TotpEnabled:                      settings.TotpEnabled,
 		LoginAgreementEnabled:            settings.LoginAgreementEnabled,
 		LoginAgreementMode:               settings.LoginAgreementMode,
