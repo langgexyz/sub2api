@@ -129,6 +129,9 @@ const (
 	SettingKeyPasswordResetEnabled             = "password_reset_enabled"              // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                      = "frontend_url"                        // 前端基础URL，用于生成邮件中的重置密码链接
 	SettingKeyInvitationCodeEnabled            = "invitation_code_enabled"             // 是否启用邀请码注册
+	// SettingKeyRegistrationRequireAffiliateCode：门票式裂变开关——开启后注册必须填一个有效的
+	// 邀请码（= 别人的 affiliate 推荐码），既当注册门票又绑定上下级，admin 的 vanity 码作种子裂变。
+	SettingKeyRegistrationRequireAffiliateCode = "registration_require_affiliate_code"
 	SettingKeyAffiliateEnabled                 = "affiliate_enabled"                   // 邀请返利功能总开关
 	SettingKeyAffiliateRebateRate              = "affiliate_rebate_rate"               // 邀请返利比例（百分比，0-100）
 	SettingKeyAffiliateRebateFreezeHours       = "affiliate_rebate_freeze_hours"       // 返利冻结期（小时，0=不冻结）

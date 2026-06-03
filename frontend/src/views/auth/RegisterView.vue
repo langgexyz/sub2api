@@ -134,6 +134,27 @@
           </transition>
         </div>
 
+        <!-- 门票式裂变：注册必须填邀请码（= 别人的推荐码，提交走 aff_code；支持 ?aff= 链接预填） -->
+        <div v-if="requireAffiliateCode">
+          <label for="aff_code" class="input-label">
+            {{ t('auth.invitationCodeLabel') }}
+          </label>
+          <div class="relative">
+            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
+              <Icon name="key" size="md" class="text-gray-400 dark:text-dark-500" />
+            </div>
+            <input
+              id="aff_code"
+              v-model="formData.aff_code"
+              type="text"
+              :disabled="registrationActionDisabled"
+              class="input pl-11"
+              :class="{ 'border-red-500 focus:border-red-500 focus:ring-red-500': errors.aff_code }"
+              :placeholder="t('auth.invitationCodePlaceholder')"
+            />
+          </div>
+        </div>
+
         <!-- Promo Code Input (Optional) -->
         <div v-if="promoCodeEnabled">
           <label for="promo_code" class="input-label">
@@ -351,6 +372,8 @@ const registrationEnabled = ref<boolean>(true)
 const emailVerifyEnabled = ref<boolean>(false)
 const promoCodeEnabled = ref<boolean>(true)
 const invitationCodeEnabled = ref<boolean>(false)
+// 门票式裂变：注册必须填邀请码（= 别人的 affiliate 推荐码），提交走 aff_code。
+const requireAffiliateCode = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
 const siteName = ref<string>('Sub2API')
@@ -404,7 +427,8 @@ const errors = reactive({
   email: '',
   password: '',
   turnstile: '',
-  invitation_code: ''
+  invitation_code: '',
+  aff_code: ''
 })
 
 const validationToastMessage = computed(() =>
@@ -412,6 +436,7 @@ const validationToastMessage = computed(() =>
   errors.password ||
   (invitationValidation.invalid ? invitationValidation.message : '') ||
   errors.invitation_code ||
+  errors.aff_code ||
   (promoValidation.invalid ? promoValidation.message : '') ||
   errors.turnstile ||
   ''
@@ -459,6 +484,7 @@ onMounted(async () => {
     emailVerifyEnabled.value = settings.email_verify_enabled
     promoCodeEnabled.value = settings.promo_code_enabled
     invitationCodeEnabled.value = settings.invitation_code_enabled
+    requireAffiliateCode.value = settings.registration_require_affiliate_code === true
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'
@@ -753,6 +779,7 @@ function validateForm(): boolean {
   errors.password = ''
   errors.turnstile = ''
   errors.invitation_code = ''
+  errors.aff_code = ''
 
   let isValid = true
 
@@ -791,6 +818,14 @@ function validateForm(): boolean {
   if (invitationCodeEnabled.value) {
     if (!formData.invitation_code.trim()) {
       errors.invitation_code = t('auth.invitationCodeRequired')
+      isValid = false
+    }
+  }
+
+  // 门票式裂变：邀请码（aff_code）必填
+  if (requireAffiliateCode.value) {
+    if (!formData.aff_code.trim()) {
+      errors.aff_code = t('auth.invitationCodeRequired')
       isValid = false
     }
   }

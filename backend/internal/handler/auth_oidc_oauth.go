@@ -483,7 +483,9 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 	// 随机密码 + 绑定身份 + 直接登录）。已二次登录走上面 existingIdentityUser 直登，不再要邀请码。
 	if compatEmailUser == nil &&
 		!h.isForceEmailOnThirdPartySignup(c.Request.Context()) &&
-		h.settingSvc != nil && h.settingSvc.IsInvitationCodeEnabled(c.Request.Context()) {
+		h.settingSvc != nil &&
+		(h.settingSvc.IsInvitationCodeEnabled(c.Request.Context()) ||
+			h.settingSvc.IsRegistrationRequireAffiliateCode(c.Request.Context())) {
 		completionResponse := map[string]any{
 			"error":                  "invitation_required",
 			"choice_reason":          "invitation_required",
@@ -723,7 +725,13 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	tokenPair, user, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, req.InvitationCode, req.AffCode, "oidc")
+	// 门票式裂变：用户在"邀请码"框填的码经 invitation_code 字段上来；当 aff_code 未单独传时，
+	// 用它作为 affiliate 推荐码（既过门票校验又绑定上下级）。invitation 门票模式下它仍当 invitation 码用。
+	affCode := strings.TrimSpace(req.AffCode)
+	if affCode == "" {
+		affCode = strings.TrimSpace(req.InvitationCode)
+	}
+	tokenPair, user, err := h.authService.LoginOrRegisterOAuthWithTokenPair(c.Request.Context(), email, username, req.InvitationCode, affCode, "oidc")
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
