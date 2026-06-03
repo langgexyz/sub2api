@@ -12,6 +12,7 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveDocumentTitle } from './title'
+import { storeOAuthAffiliateCode, storeAffiliateReferralCode } from '@/utils/oauthAffiliate'
 
 /**
  * Route definitions with lazy loading
@@ -736,6 +737,15 @@ function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: bo
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
   navigationLoading.startNavigation()
+
+  // 全路径推荐码捕获：任意页面 URL 带 ?ref= 都存进来（粘贴转发到哪都行），
+  // 后续 GitHub 授权完成时自动带上、绑定上级。
+  const refRaw = to.query.ref
+  const refCode = Array.isArray(refRaw) ? refRaw[0] : refRaw
+  if (refCode) {
+    storeOAuthAffiliateCode(refCode)
+    storeAffiliateReferralCode(refCode)
+  }
 
   const authStore = useAuthStore()
 

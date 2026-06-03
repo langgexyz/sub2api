@@ -401,8 +401,8 @@ export default {
   },
   // Auth
   auth: {
-    welcomeBack: 'Welcome Back',
-    signInToAccount: 'Sign in to your account to continue',
+    welcomeBack: 'Welcome',
+    signInToAccount: 'Sign in or sign up with GitHub',
     signIn: 'Sign In',
     signingIn: 'Signing in...',
     createAccount: 'Create Account',

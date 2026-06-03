@@ -401,8 +401,8 @@ export default {
   },
   // Auth
   auth: {
-    welcomeBack: '欢迎回来',
-    signInToAccount: '登录您的账户以继续',
+    welcomeBack: '欢迎',
+    signInToAccount: '使用 GitHub 登录或注册',
     signIn: '登录',
     signingIn: '登录中...',
     createAccount: '创建账户',
