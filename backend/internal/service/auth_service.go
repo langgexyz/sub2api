@@ -76,6 +76,7 @@ type AuthService struct {
 	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	apiKeyService         *APIKeyService
 }
 
 type DefaultSubscriptionAssigner interface {
@@ -104,6 +105,7 @@ func NewAuthService(
 	defaultSubAssigner DefaultSubscriptionAssigner,
 	affiliateService *AffiliateService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	apiKeyService *APIKeyService,
 ) *AuthService {
 	return &AuthService{
 		entClient:             entClient,
@@ -119,6 +121,7 @@ func NewAuthService(
 		affiliateService:      affiliateService,
 		defaultSubAssigner:    defaultSubAssigner,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		apiKeyService:         apiKeyService,
 	}
 }
 
@@ -127,6 +130,31 @@ func (s *AuthService) EntClient() *dbent.Client {
 		return nil
 	}
 	return s.entClient
+}
+
+// createDefaultAPIKeyOnSignup 注册成功后 best-effort 自动建一把默认密钥，
+// 让用户开箱即用。无 apiKeyService（测试场景）或无可访问分组时静默跳过；
+// 任何失败只记日志，绝不阻断注册主流程。
+func (s *AuthService) createDefaultAPIKeyOnSignup(ctx context.Context, userID int64) {
+	if s.apiKeyService == nil {
+		return
+	}
+	groups, err := s.apiKeyService.GetAvailableGroups(ctx, userID)
+	if err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] default key: resolve groups for user %d failed: %v", userID, err)
+		return
+	}
+	if len(groups) == 0 {
+		// 无可访问分组则不建密钥（用户后续可手动创建）
+		return
+	}
+	groupID := groups[0].ID
+	if _, err := s.apiKeyService.Create(ctx, userID, CreateAPIKeyRequest{
+		Name:    "CCDirect1",
+		GroupID: &groupID,
+	}); err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] default key: create for user %d failed: %v", userID, err)
+	}
 }
 
 // Register 用户注册，返回token和用户
@@ -254,6 +282,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 			}
 		}
 	}
+	s.createDefaultAPIKeyOnSignup(ctx, user.ID)
 
 	// 标记邀请码为已使用（如果使用了邀请码）
 	if invitationRedeemCode != nil {
@@ -559,6 +588,7 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 				// snapshot user × platform quota（fail-open）
 				_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+				s.createDefaultAPIKeyOnSignup(ctx, user.ID)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -717,6 +747,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
+					s.createDefaultAPIKeyOnSignup(ctx, user.ID)
 				}
 			} else {
 				if err := s.userRepo.Create(ctx, newUser); err != nil {
@@ -737,6 +768,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
+					s.createDefaultAPIKeyOnSignup(ctx, user.ID)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
 							return nil, nil, ErrInvitationCodeInvalid
