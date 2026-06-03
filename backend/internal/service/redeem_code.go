@@ -54,3 +54,22 @@ func GenerateRedeemCode() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// invitationCodeAlphabet 去掉易混字符 0/O/1/I/L，方便用户口述/手输。
+const invitationCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+// invitationCodeLength 邀请码只用于注册门槛（非金额、有频控），取 6 位易读短码。
+const invitationCodeLength = 6
+
+// GenerateInvitationCode 生成 6 位大写字母+数字邀请码（如 K7M2X9）。
+func GenerateInvitationCode() (string, error) {
+	b := make([]byte, invitationCodeLength)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	out := make([]byte, invitationCodeLength)
+	for i := range b {
+		out[i] = invitationCodeAlphabet[int(b[i])%len(invitationCodeAlphabet)]
+	}
+	return string(out), nil
+}
