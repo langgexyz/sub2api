@@ -41,7 +41,7 @@
         >
           <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+        <button @click="openCreateModal" class="btn btn-primary" data-tour="keys-create-btn">
           <Icon name="plus" size="md" class="mr-2" />
           {{ t('keys.createKey') }}
         </button>
@@ -366,7 +366,7 @@
               :title="t('keys.noKeysYet')"
               :description="t('keys.createFirstKey')"
               :action-text="t('keys.createKey')"
-              @action="showCreateModal = true"
+              @action="openCreateModal"
             />
           </template>
         </DataTable>
@@ -1374,6 +1374,26 @@ const closeModals = () => {
     expiration_preset: '30',
     expiration_date: ''
   }
+}
+
+// 默认密钥名 CCDirect+序号：取已有 CCDirect{n} 的最大序号 +1，避免重名
+const defaultKeyName = () => {
+  let max = 0
+  for (const k of apiKeys.value) {
+    const m = /^CCDirect(\d+)$/.exec(k.name || '')
+    if (m) max = Math.max(max, parseInt(m[1], 10))
+  }
+  return `CCDirect${max + 1}`
+}
+
+// 打开创建弹窗：复用 closeModals 重置表单，再套用默认名 + 单分组自动选中
+const openCreateModal = () => {
+  closeModals()
+  formData.value.name = defaultKeyName()
+  if (groups.value.length === 1) {
+    formData.value.group_id = groups.value[0].id
+  }
+  showCreateModal.value = true
 }
 
 // Show reset quota confirmation dialog
