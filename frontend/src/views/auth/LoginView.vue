@@ -311,8 +311,9 @@ watch(validationToastMessage, (value, previousValue) => {
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
-  // 分享链接 ?aff=xxx 落到登录页时，把邀请码存起来，GitHub 授权回来后自动带上（绑定上级 + 过门票）。
-  storeOAuthAffiliateCode(route.query.aff ?? route.query.aff_code)
+  // 分享链接 ?ref=xxx 落到登录页时把邀请码存起来（全局路由守卫已统一捕获，这里兜底），
+  // GitHub 授权回来后自动带上（绑定上级 + 过门票）。
+  storeOAuthAffiliateCode(route.query.ref)
 
   const expiredFlag = sessionStorage.getItem('auth_expired')
   if (expiredFlag) {
