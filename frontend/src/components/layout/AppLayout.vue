@@ -39,7 +39,8 @@ const isAdmin = computed(() => authStore.user?.role === 'admin')
 
 const { replayTour } = useOnboardingTour({
   storageKey: isAdmin.value ? 'admin_guide' : 'user_guide',
-  autoStart: true
+  // 不自动弹新手引导（admin 仍可手动从头像菜单"重放引导"触发）
+  autoStart: false
 })
 
 const onboardingStore = useOnboardingStore()

@@ -12,7 +12,9 @@
       </div>
       <!-- Login Form -->
       <form @submit.prevent="handleLogin" class="space-y-5">
-        <template v-if="!disableEmailLogin">
+        <!-- 加载完设置才渲染表单（避免邮箱表单闪一下）；dev 模式始终显示邮箱表单方便本地用 admin 登录验证，
+             生产构建 import.meta.env.DEV=false → 仅 GitHub（后端 admin 豁免仍在，dev 下也只有 admin 能真登）。 -->
+        <template v-if="publicSettingsLoaded && (isDevMode || !disableEmailLogin)">
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
@@ -235,6 +237,9 @@ const isLoading = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 const publicSettingsLoaded = ref<boolean>(false)
+// dev 模式标志：本地 pnpm dev 时 import.meta.env.DEV=true，登录页保留邮箱表单方便用 admin 登录验证；
+// 生产构建为 false → GitHub-only。
+const isDevMode = import.meta.env.DEV
 
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
