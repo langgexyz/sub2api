@@ -3095,7 +3095,14 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 
 	codes := make([]RedeemCode, 0, input.Count)
 	for i := 0; i < input.Count; i++ {
-		codeValue, err := GenerateRedeemCode()
+		var codeValue string
+		var err error
+		if input.Type == RedeemTypeInvitation {
+			// 邀请码用 6 位易读短码；短码空间小，生成后查重，撞了重试。
+			codeValue, err = s.generateUniqueInvitationCode(ctx)
+		} else {
+			codeValue, err = GenerateRedeemCode()
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -3120,6 +3127,26 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 		codes = append(codes, code)
 	}
 	return codes, nil
+}
+
+// generateUniqueInvitationCode 生成 6 位邀请码并查重，撞了重试（短码空间小，兜底防唯一约束冲突）。
+func (s *adminServiceImpl) generateUniqueInvitationCode(ctx context.Context) (string, error) {
+	const maxAttempts = 8
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		code, err := GenerateInvitationCode()
+		if err != nil {
+			return "", err
+		}
+		_, lookupErr := s.redeemCodeRepo.GetByCode(ctx, code)
+		if errors.Is(lookupErr, ErrRedeemCodeNotFound) {
+			return code, nil
+		}
+		if lookupErr != nil {
+			return "", lookupErr
+		}
+		// 命中已存在的码，重试。
+	}
+	return "", errors.New("failed to generate a unique invitation code after retries")
 }
 
 func (s *adminServiceImpl) DeleteRedeemCode(ctx context.Context, id int64) error {

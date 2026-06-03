@@ -1173,6 +1173,7 @@ export default {
     user: '用户',
     username: '用户名',
     email: '邮箱',
+    noStandaloneEmail: '通过第三方登录 · 无独立邮箱',
     status: '状态',
     role: '角色',
     enterUsername: '输入用户名',
