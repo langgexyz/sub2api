@@ -530,7 +530,8 @@ export default {
       callbackMissingToken: 'Missing login token, please try again.',
       backToLogin: 'Back to Login',
       invitationRequired:
-        'This {providerName} account is not yet registered. The site requires an invitation code — please enter one to complete registration.',
+        'This {providerName} account is not yet registered. Please enter an invitation code to complete registration.',
+      invitationPlaceholder: 'Enter your invite code (required)',
       invalidPendingToken: 'The registration token has expired. Please sign in again.',
       completeRegistration: 'Complete Registration',
       completing: 'Completing registration…',
