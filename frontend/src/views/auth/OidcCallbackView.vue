@@ -266,8 +266,10 @@ import {
 } from '@/api/auth'
 import {
   clearAllAffiliateReferralCodes,
+  loadAffiliateReferralCode,
   loadOAuthAffiliateCode,
-  oauthAffiliatePayload
+  oauthAffiliatePayload,
+  storeOAuthAffiliateCode
 } from '@/utils/oauthAffiliate'
 
 const route = useRoute()
@@ -658,24 +660,27 @@ async function finalizePendingAccountResponse(completion: PendingOidcCompletion)
 
 async function handleSubmitInvitation() {
   invitationError.value = ''
-  if (!invitationCode.value.trim()) return
+  const code = invitationCode.value.trim()
+  if (!code) return
 
   isSubmitting.value = true
   try {
-    const affCode = loadOAuthAffiliateCode()
+    // 邀请码输入框是唯一真源：门票校验(invitation_code)和上级绑定(aff_code)都用框里的值——
+    // 框可能来自 ?ref 预填，也可能用户手改过。不再独立从 storage 读 aff_code，避免「框里显示/
+    // 用户改的码」与「storage 里的旧码」不一致导致绑错上级。同时把这个码同步回 storage，
+    // 让重试/后续流程拿到一致的值。
+    storeOAuthAffiliateCode(code)
     const decision = currentAdoptionDecision()
     const completion: PendingOidcCompletion = legacyPendingOAuthToken.value
       ? (
           await apiClient.post<PendingOidcCompletion>('/auth/oauth/oidc/complete-registration', {
             pending_oauth_token: legacyPendingOAuthToken.value,
-            invitation_code: invitationCode.value.trim(),
-            ...oauthAffiliatePayload(affCode),
+            invitation_code: code,
+            ...oauthAffiliatePayload(code),
             ...serializeAdoptionDecision(decision)
           })
         ).data
-      : affCode
-        ? await completeOIDCOAuthRegistration(invitationCode.value.trim(), decision, affCode)
-        : await completeOIDCOAuthRegistration(invitationCode.value.trim(), decision)
+      : await completeOIDCOAuthRegistration(code, decision, code)
     await finalizePendingAccountResponse(completion)
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { message?: string } } }
@@ -770,6 +775,16 @@ async function handleSubmitTotpChallenge() {
 
 onMounted(async () => {
   void loadProviderName()
+
+  // 跨 GitHub 第三方跳转回来后，sessionStorage 里的推荐码可能不存活（跨域整页跳转）。
+  // 用 30 天 localStorage 的持久推荐码回填 sessionStorage，保证邀请码预填 + aff_code 绑定
+  // 不依赖 sessionStorage 在回跳后是否还在。session 为空才回填，不覆盖本次 OAuth 流程的值。
+  if (!loadOAuthAffiliateCode()) {
+    const durableReferralCode = loadAffiliateReferralCode()
+    if (durableReferralCode) {
+      storeOAuthAffiliateCode(durableReferralCode)
+    }
+  }
 
   const params = parseFragmentParams()
   const legacyLogin = readLegacyFragmentLogin(params)
