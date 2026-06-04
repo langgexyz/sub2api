@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 )
 
 // semverPattern 预编译 semver 格式校验正则
@@ -664,9 +665,33 @@ type UpdateSettingsRequest struct {
 // PUT /api/v1/admin/settings
 func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	var req UpdateSettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+
+	// Treat the PUT as a partial update: only persist setting keys that the client
+	// actually sent. Without this, the non-pointer fields the request struct cannot
+	// distinguish from "omitted" get written as their zero value, silently wiping
+	// every setting the caller left out (e.g. a {"registration_enabled":true} body
+	// once blanked the entire OIDC/GitHub login config). Each setting key equals its
+	// JSON field name, so the raw body's top-level keys are the present-key mask.
+	presentKeys := make(map[string]struct{})
+	var rawBody map[string]json.RawMessage
+	if err := c.ShouldBindBodyWith(&rawBody, binding.JSON); err == nil {
+		for key := range rawBody {
+			presentKeys[key] = struct{}{}
+		}
+	}
+	// When the OIDC login config is being saved, the handler derives and pins the OIDC
+	// security flags (use_pkce / validate_id_token) via OIDCSecurityWriteDefaults even when
+	// the client omits them, so implicit config-file defaults don't silently take effect on a
+	// legacy upgrade. Keep those derived keys in the present-key mask so the partial-update
+	// filter doesn't drop them. Unrelated partial PUTs that don't touch OIDC leave the stored
+	// values alone.
+	if _, ok := presentKeys[service.SettingKeyOIDCConnectEnabled]; ok {
+		presentKeys[service.SettingKeyOIDCConnectUsePKCE] = struct{}{}
+		presentKeys[service.SettingKeyOIDCConnectValidateIDToken] = struct{}{}
 	}
 
 	previousSettings, err := h.settingService.GetAllSettings(c.Request.Context())
@@ -1822,7 +1847,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		},
 		ForceEmailOnThirdPartySignup: boolValueOrDefault(req.ForceEmailOnThirdPartySignup, previousAuthSourceDefaults.ForceEmailOnThirdPartySignup),
 	}
-	if err := h.settingService.UpdateSettingsWithAuthSourceDefaults(c.Request.Context(), settings, authSourceDefaults); err != nil {
+	if err := h.settingService.UpdateSettingsWithAuthSourceDefaultsPartial(c.Request.Context(), settings, authSourceDefaults, presentKeys); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}

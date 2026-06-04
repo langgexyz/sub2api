@@ -42,7 +42,11 @@ func (s *settingUpdateRepoStub) SetMultiple(ctx context.Context, settings map[st
 }
 
 func (s *settingUpdateRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
-	panic("unexpected GetAll call")
+	out := make(map[string]string, len(s.updates))
+	for k, v := range s.updates {
+		out[k] = v
+	}
+	return out, nil
 }
 
 func (s *settingUpdateRepoStub) Delete(ctx context.Context, key string) error {
@@ -336,6 +340,57 @@ func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) 
 
 		require.Equal(t, antigravity.GetDefaultUserAgentVersion(), svc.GetAntigravityUserAgentVersion(context.Background()))
 	})
+}
+
+// TestSettingService_PartialUpdate_OnlyWritesPresentKeys is the regression guard for the
+// incident where a partial PUT body (e.g. {"registration_enabled":true}) silently blanked
+// every omitted setting — including the entire OIDC/GitHub login config — because the
+// request struct's non-pointer zero values were written wholesale. With a presentKeys mask,
+// only the keys the caller actually sent must reach the store.
+func TestSettingService_PartialUpdate_OnlyWritesPresentKeys(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	// settings carries zero values for every omitted field (exactly what the handler builds
+	// from a partial request body). Only registration_enabled was sent by the client.
+	settings := &SystemSettings{RegistrationEnabled: true}
+	authDefaults := &AuthSourceDefaultSettings{}
+	presentKeys := map[string]struct{}{SettingKeyRegistrationEnabled: {}}
+
+	err := svc.UpdateSettingsWithAuthSourceDefaultsPartial(context.Background(), settings, authDefaults, presentKeys)
+	require.NoError(t, err)
+
+	// The sent key is persisted...
+	require.Equal(t, "true", repo.updates[SettingKeyRegistrationEnabled])
+	// ...and nothing the caller omitted is touched (these would otherwise be blanked).
+	for _, omitted := range []string{
+		SettingKeyOIDCConnectEnabled,
+		SettingKeyOIDCConnectClientID,
+		SettingKeyGitHubOAuthClientID,
+		SettingKeySiteName,
+	} {
+		_, present := repo.updates[omitted]
+		require.Falsef(t, present, "omitted key %q must not be written by a partial update", omitted)
+	}
+}
+
+// TestSettingService_PartialUpdate_NilMaskWritesAll keeps the historical full-overwrite
+// behaviour for callers that pass no mask (and for the UpdateSettingsWithAuthSourceDefaults
+// delegate), so a genuine full save still persists every field.
+func TestSettingService_PartialUpdate_NilMaskWritesAll(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettingsWithAuthSourceDefaultsPartial(context.Background(),
+		&SystemSettings{RegistrationEnabled: true, SiteName: "CCDirect"},
+		&AuthSourceDefaultSettings{}, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, "true", repo.updates[SettingKeyRegistrationEnabled])
+	require.Equal(t, "CCDirect", repo.updates[SettingKeySiteName])
+	// A non-sent field is still written (zero value) on the full path — proves nil != filtered.
+	_, present := repo.updates[SettingKeyOIDCConnectClientID]
+	require.True(t, present)
 }
 
 func TestSettingService_UpdateSettings_RejectsInvalidPaymentVisibleMethodSource(t *testing.T) {
