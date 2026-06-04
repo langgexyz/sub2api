@@ -272,6 +272,7 @@ import {
   oauthAffiliatePayload,
   storeOAuthAffiliateCode
 } from '@/utils/oauthAffiliate'
+import { extractApiErrorCode } from '@/utils/apiError'
 
 const route = useRoute()
 const router = useRouter()
@@ -617,6 +618,15 @@ async function finalizeCompletion(completion: PendingOAuthExchangeResponse, redi
   await router.replace(redirect)
 }
 
+// 把分享链接带来的推荐码预填进邀请码框（sessionStorage 没有就用 30 天持久 localStorage），
+// 用户点一下"完成注册"即可，无需手输。所有进入"需要邀请码"态的入口都调它（首屏 onMounted
+// 的两条 invitation_required 分支此前漏了预填 —— 框一直是空的）。
+function prefillInvitationFromReferral() {
+  if (!invitationCode.value.trim()) {
+    invitationCode.value = loadOAuthAffiliateCode() || loadAffiliateReferralCode()
+  }
+}
+
 async function finalizePendingAccountResponse(completion: PendingOidcCompletion) {
   applyAdoptionSuggestionState(completion)
   const redirect = sanitizeRedirectPath(completion.redirect || redirectTo.value)
@@ -624,10 +634,7 @@ async function finalizePendingAccountResponse(completion: PendingOidcCompletion)
   if (completion.error === 'invitation_required') {
     pendingAccountAction.value = 'none'
     needsInvitation.value = true
-    // 分享链接带来的邀请码（?aff=）自动预填，用户点一下"完成注册"即可，无需手输。
-    if (!invitationCode.value.trim()) {
-      invitationCode.value = loadOAuthAffiliateCode()
-    }
+    prefillInvitationFromReferral()
     needsAdoptionConfirmation.value = false
     isProcessing.value = false
     persistPendingAuthSession(redirect)
@@ -688,9 +695,17 @@ async function handleSubmitInvitation() {
       : await completeOIDCOAuthRegistration(code, decision, code)
     await finalizePendingAccountResponse(completion)
   } catch (e: unknown) {
-    const err = e as { message?: string; response?: { data?: { message?: string } } }
-    invitationError.value =
-      err.response?.data?.message || err.message || t('auth.oidc.completeRegistrationFailed')
+    // 后端 affiliate 错误码映射成中文，别把英文 message 直接抛给用户。
+    const reason = extractApiErrorCode(e)
+    if (reason === 'AFFILIATE_CODE_INVALID') {
+      invitationError.value = t('auth.invitationCodeInvalid')
+    } else if (reason === 'AFFILIATE_CODE_REQUIRED') {
+      invitationError.value = t('auth.invitationCodeRequired')
+    } else {
+      const err = e as { message?: string; response?: { data?: { message?: string } } }
+      invitationError.value =
+        err.response?.data?.message || err.message || t('auth.oidc.completeRegistrationFailed')
+    }
   } finally {
     isSubmitting.value = false
   }
@@ -814,6 +829,7 @@ onMounted(async () => {
       legacyPendingOAuthToken.value = legacyPendingToken
       redirectTo.value = redirect
       needsInvitation.value = true
+      prefillInvitationFromReferral()
       isProcessing.value = false
       return
     }
@@ -833,6 +849,7 @@ onMounted(async () => {
 
     if (completion.error === 'invitation_required') {
       needsInvitation.value = true
+      prefillInvitationFromReferral()
       isProcessing.value = false
       persistPendingAuthSession(completionRedirect)
       return
