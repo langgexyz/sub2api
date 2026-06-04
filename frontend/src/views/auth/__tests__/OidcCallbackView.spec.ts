@@ -160,7 +160,9 @@ describe('OidcCallbackView', () => {
       adopt_display_name: true,
       adopt_avatar: true,
       pending_oauth_token: 'legacy-pending-token',
-      invitation_code: 'invite-code'
+      invitation_code: 'invite-code',
+      // 邀请码框是唯一真源：框里的码同时作为 aff_code（上级绑定），与 invitation_code 一致。
+      aff_code: 'invite-code'
     })
     expect(setToken).toHaveBeenCalledWith('legacy-access-token')
     expect(replace).toHaveBeenCalledWith('/legacy-invite')
@@ -383,7 +385,7 @@ describe('OidcCallbackView', () => {
     expect(completeOIDCOAuthRegistration).toHaveBeenCalledWith('invite-code', {
       adoptDisplayName: true,
       adoptAvatar: false
-    })
+    }, 'invite-code')
   })
 
   it('keeps the oauth flow active when complete-registration returns another pending step', async () => {
@@ -423,7 +425,7 @@ describe('OidcCallbackView', () => {
     expect(completeOIDCOAuthRegistration).toHaveBeenCalledWith('invite-code', {
       adoptDisplayName: true,
       adoptAvatar: true
-    })
+    }, 'invite-code')
     expect(setToken).not.toHaveBeenCalled()
     expect(replace).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('auth.oauthFlow.bindExistingAccount')
