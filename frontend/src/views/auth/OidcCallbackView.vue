@@ -85,15 +85,16 @@
               <input
                 v-model="invitationCode"
                 type="text"
-                class="input w-full"
-                :placeholder="t('auth.invitationCodePlaceholder')"
+                :class="['input w-full', { 'input-error': invitationError }]"
+                :placeholder="t('auth.oidc.invitationPlaceholder')"
                 :disabled="isSubmitting"
+                @input="invitationError = ''"
                 @keyup.enter="handleSubmitInvitation"
               />
             </div>
             <button
               class="btn btn-primary w-full"
-              :disabled="isSubmitting || !invitationCode.trim()"
+              :disabled="isSubmitting"
               @click="handleSubmitInvitation"
             >
               {{
@@ -661,7 +662,11 @@ async function finalizePendingAccountResponse(completion: PendingOidcCompletion)
 async function handleSubmitInvitation() {
   invitationError.value = ''
   const code = invitationCode.value.trim()
-  if (!code) return
+  if (!code) {
+    // 按钮不再禁用：空码点击时把输入框圈红 + toast 提醒，而不是静默无反应。
+    invitationError.value = t('auth.invitationCodeRequired')
+    return
+  }
 
   isSubmitting.value = true
   try {
