@@ -1574,6 +1574,19 @@ func (s *SettingService) OIDCSecurityWriteDefaults(ctx context.Context) (bool, b
 
 // UpdateSettingsWithAuthSourceDefaults persists system settings and auth-source defaults in a single write.
 func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings) error {
+	return s.UpdateSettingsWithAuthSourceDefaultsPartial(ctx, settings, authDefaults, nil)
+}
+
+// UpdateSettingsWithAuthSourceDefaultsPartial persists system settings and auth-source
+// defaults in a single write. When presentKeys is non-nil it acts as a partial-update
+// mask: only setting keys whose name appears in presentKeys are written, and every other
+// key keeps its current stored value. This makes a partial PUT body (a JSON object that
+// omits most fields) safe — omitted fields are no longer overwritten with the request
+// struct's zero value. A nil presentKeys preserves the historical full-overwrite behaviour.
+//
+// The mask works because each setting key string equals its wire (JSON) field name, so the
+// handler can build presentKeys directly from the top-level keys of the raw request body.
+func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsPartial(ctx context.Context, settings *SystemSettings, authDefaults *AuthSourceDefaultSettings, presentKeys map[string]struct{}) error {
 	updates, err := s.buildSystemSettingsUpdates(ctx, settings)
 	if err != nil {
 		return err
@@ -1587,11 +1600,30 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaults(ctx context.Contex
 		updates[key] = value
 	}
 
-	err = s.settingRepo.SetMultiple(ctx, updates)
-	if err == nil {
-		s.refreshCachedSettings(settings)
+	if presentKeys != nil {
+		for key := range updates {
+			if _, ok := presentKeys[key]; !ok {
+				delete(updates, key)
+			}
+		}
 	}
-	return err
+
+	if err = s.settingRepo.SetMultiple(ctx, updates); err != nil {
+		return err
+	}
+
+	// A partial update leaves the passed-in settings struct holding zero values for any
+	// omitted non-pointer field, so refreshing the in-memory caches from it would cache
+	// stale zeros. Re-read the merged state from the store for the partial path; the full
+	// path keeps refreshing straight from the struct it just wrote in full.
+	if presentKeys != nil {
+		if fresh, ferr := s.GetAllSettings(ctx); ferr == nil {
+			s.refreshCachedSettings(fresh)
+			return nil
+		}
+	}
+	s.refreshCachedSettings(settings)
+	return nil
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
