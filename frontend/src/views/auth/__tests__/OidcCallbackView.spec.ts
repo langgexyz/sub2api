@@ -388,6 +388,34 @@ describe('OidcCallbackView', () => {
     }, 'invite-code')
   })
 
+  it('prefills the invitation box from the durable referral code on initial load', async () => {
+    // 真实场景：?ref 推荐码存进 30 天 localStorage，GitHub 往返后 sessionStorage 可能没了，
+    // 首屏 onMounted 的 invitation_required 分支必须把它预填进框（此前漏了 → 框一直空）。
+    localStorage.setItem(
+      'affiliate_referral_code',
+      JSON.stringify({ code: 'MXVKX6', expiresAt: Date.now() + 1_000_000 })
+    )
+    exchangePendingOAuthCompletion.mockResolvedValue({
+      error: 'invitation_required',
+      redirect: '/dashboard'
+    })
+
+    const wrapper = mount(OidcCallbackView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          RouterLink: { template: '<a><slot /></a>' },
+          transition: false
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect((wrapper.find('input[type="text"]').element as HTMLInputElement).value).toBe('MXVKX6')
+  })
+
   it('keeps the oauth flow active when complete-registration returns another pending step', async () => {
     exchangePendingOAuthCompletion.mockResolvedValue({
       error: 'invitation_required',
