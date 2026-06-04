@@ -17,17 +17,14 @@ function isLocaleCode(value: string): value is LocaleCode {
 }
 
 function getDefaultLocale(): LocaleCode {
+  // 用户显式切换过语言则沿用其选择；否则一律中文。
+  // 不按 navigator.language 自适应——产品默认中文，非中文浏览器也走中文。
   const saved = localStorage.getItem(LOCALE_KEY)
   if (saved && isLocaleCode(saved)) {
     return saved
   }
 
-  const browserLang = navigator.language.toLowerCase()
-  if (browserLang.startsWith('zh')) {
-    return 'zh'
-  }
-
-  return DEFAULT_LOCALE
+  return 'zh'
 }
 
 export const i18n = createI18n({
