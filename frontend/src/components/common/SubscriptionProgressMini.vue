@@ -163,15 +163,6 @@
           </div>
         </div>
 
-        <div class="border-t border-gray-100 p-2 dark:border-dark-700">
-          <router-link
-            to="/subscriptions"
-            @click="closeTooltip"
-            class="block w-full py-1 text-center text-xs text-primary-600 hover:underline dark:text-primary-400"
-          >
-            {{ t('subscriptionProgress.viewAll') }}
-          </router-link>
-        </div>
       </div>
     </transition>
   </div>

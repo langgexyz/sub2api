@@ -242,18 +242,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/available-channels',
-    name: 'UserAvailableChannels',
-    component: () => import('@/views/user/AvailableChannelsView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Available Channels',
-      titleKey: 'availableChannels.title',
-      descriptionKey: 'availableChannels.description'
-    }
-  },
-  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/user/ProfileView.vue'),
@@ -263,18 +251,6 @@ const routes: RouteRecordRaw[] = [
       title: 'Profile',
       titleKey: 'profile.title',
       descriptionKey: 'profile.description'
-    }
-  },
-  {
-    path: '/subscriptions',
-    name: 'Subscriptions',
-    component: () => import('@/views/user/SubscriptionsView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'My Subscriptions',
-      titleKey: 'userSubscriptions.title',
-      descriptionKey: 'userSubscriptions.description'
     }
   },
   {
@@ -840,8 +816,7 @@ router.beforeEach(async (to, _from, next) => {
     const restrictedPaths = [
       '/admin/groups',
       '/admin/subscriptions',
-      '/admin/redeem',
-      '/subscriptions'
+      '/admin/redeem'
     ]
 
     if (restrictedPaths.some((path) => to.path.startsWith(path))) {
