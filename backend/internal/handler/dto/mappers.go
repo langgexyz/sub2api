@@ -3,10 +3,20 @@ package dto
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
+
+// displayEmail returns a human-readable identifier for display.
+// OIDC synthetic accounts (e.g. GitHub login) show as "github.com/{username}" instead of the opaque hash email.
+func displayEmail(email, username string) string {
+	if strings.HasSuffix(email, "@oidc-connect.invalid") && username != "" {
+		return "github.com/" + username
+	}
+	return email
+}
 
 func UserFromServiceShallow(u *service.User) *User {
 	if u == nil {
@@ -14,7 +24,7 @@ func UserFromServiceShallow(u *service.User) *User {
 	}
 	return &User{
 		ID:                         u.ID,
-		Email:                      u.Email,
+		Email:                      displayEmail(u.Email, u.Username),
 		Username:                   u.Username,
 		Role:                       u.Role,
 		Balance:                    u.Balance,
