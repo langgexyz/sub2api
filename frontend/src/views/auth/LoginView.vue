@@ -1,5 +1,5 @@
 <template>
-  <AuthLayout>
+  <AuthLayout @logo-triple-click="unlockEmailLogin">
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">
@@ -177,7 +177,7 @@
     </div>
 
     <!-- Footer -->
-    <template v-if="!backendModeEnabled && !disableEmailLogin" #footer>
+    <template v-if="publicSettingsLoaded && !backendModeEnabled && !disableEmailLogin" #footer>
       <p class="text-gray-500 dark:text-dark-400">
         {{ t('auth.dontHaveAccount') }}
         <router-link
@@ -254,7 +254,9 @@ const githubOAuthEnabled = ref<boolean>(false)
 const googleOAuthEnabled = ref<boolean>(false)
 const passwordResetEnabled = ref<boolean>(false)
 // 关闭邮箱登录（只走 OAuth，如 GitHub）时隐藏邮箱表单 + 注册链接。
+// 连击 logo 3 次可在当前会话临时解锁（管理员应急入口）。
 const disableEmailLogin = ref<boolean>(false)
+function unlockEmailLogin() { disableEmailLogin.value = false }
 const loginAgreementEnabled = ref<boolean>(false)
 const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
 const loginAgreementUpdatedAt = ref<string>('')
