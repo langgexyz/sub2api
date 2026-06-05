@@ -1148,13 +1148,7 @@ func applyPendingOAuthBindingTx(
 		}
 	}
 
-	if decision != nil && decision.AdoptDisplayName && adoptedDisplayName != "" {
-		if err := tx.Client().User.UpdateOneID(targetUserID).
-			SetUsername(adoptedDisplayName).
-			Exec(ctx); err != nil {
-			return err
-		}
-	}
+
 
 	identity, err := ensurePendingOAuthIdentityForUser(ctx, tx, session, targetUserID)
 	if err != nil {
