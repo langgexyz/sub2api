@@ -77,19 +77,7 @@ func TestRequestResponseCaptureCapturesBodiesAndSession(t *testing.T) {
 	require.False(t, got.ResponseTruncated)
 }
 
-func TestCapBytesTruncates(t *testing.T) {
-	small := []byte("short")
-	got, truncated := capBytes(small)
-	require.False(t, truncated)
-	require.Equal(t, small, got)
-
-	big := make([]byte, requestResponseCaptureMaxBytes+100)
-	got, truncated = capBytes(big)
-	require.True(t, truncated)
-	require.Len(t, got, requestResponseCaptureMaxBytes)
-}
-
-func TestRequestResponseCaptureForwardsFullBodyWhenStoredTruncated(t *testing.T) {
+func TestRequestResponseCaptureStoresFullBodyNoTruncation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	repo := &fakeRRLRepo{}
@@ -104,17 +92,17 @@ func TestRequestResponseCaptureForwardsFullBodyWhenStoredTruncated(t *testing.T)
 		c.String(http.StatusOK, "ok")
 	})
 
-	// body 超过留存上限：下游必须拿到完整 body，留存副本被截断。
-	oversized := requestResponseCaptureMaxBytes + 4096
-	reqBody := strings.Repeat("x", oversized)
+	// 大 body：下游与留存副本都必须是完整长度，不截断。
+	big := 8 << 20 // 8 MiB
+	reqBody := strings.Repeat("x", big)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, oversized, downstreamLen, "下游应收到完整 body")
+	require.Equal(t, big, downstreamLen, "下游应收到完整 body")
 	require.Len(t, repo.logs, 1)
-	require.True(t, repo.logs[0].RequestTruncated)
-	require.Len(t, repo.logs[0].RequestBody, requestResponseCaptureMaxBytes)
+	require.False(t, repo.logs[0].RequestTruncated)
+	require.Len(t, repo.logs[0].RequestBody, big, "留存副本应完整不截断")
 }
 
 func TestExtractSessionHashEmptyWithoutMetadata(t *testing.T) {

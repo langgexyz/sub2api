@@ -9,14 +9,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// requestResponseCaptureMaxBytes 单条 request/response 各自的最大留存字节数。
-// 超出部分截断并打标，避免极端大请求（长上下文 + 缓存）撑爆内存与存储。
-const requestResponseCaptureMaxBytes = 5 << 20 // 5 MiB
-
 // RequestResponseCapture 透明捕获网关请求体与响应体原文，异步落库供 Prompt 分析。
 // 设计：对现有 handler/service 零侵入——request_id 复用 RequestLogger 注入的 ctx 值
 // （与 usage_logs.request_id 同源可 JOIN），session_hash 自行从 metadata.user_id 解析。
 // 必须注册在 RequestLogger 与鉴权中间件之后、网关 handler 之前。
+//
+// 全量留存：request/response 原文不截断（入站请求体已被网关 RequestBodyLimit 中间件
+// 按 cfg.Gateway.MaxBodySize 限制）。request_truncated/response_truncated 列保留，恒为 false。
 func RequestResponseCapture(repo service.RequestResponseLogRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if repo == nil || c.Request == nil || c.Request.Body == nil {
@@ -24,15 +23,12 @@ func RequestResponseCapture(repo service.RequestResponseLogRepository) gin.Handl
 			return
 		}
 
-		fullBody, _ := io.ReadAll(c.Request.Body)
-		// 还原完整 body 供下游 handler 转发——截断只作用于留存副本，绝不影响真实请求。
-		c.Request.Body = io.NopCloser(bytes.NewReader(fullBody))
-		reqBody, reqTruncated := capBytes(fullBody)
+		reqBody, _ := io.ReadAll(c.Request.Body)
+		c.Request.Body = io.NopCloser(bytes.NewReader(reqBody))
 
 		tw := &teeResponseWriter{
 			ResponseWriter: c.Writer,
 			buf:            &bytes.Buffer{},
-			limit:          requestResponseCaptureMaxBytes,
 		}
 		c.Writer = tw
 
@@ -40,16 +36,14 @@ func RequestResponseCapture(repo service.RequestResponseLogRepository) gin.Handl
 
 		ctx := c.Request.Context()
 		log := &service.RequestResponseLog{
-			RequestID:         service.ResolveUsageBillingRequestID(ctx, ""),
-			SessionHash:       extractSessionHash(reqBody),
-			Model:             extractModel(reqBody),
-			Endpoint:          c.FullPath(),
-			StatusCode:        c.Writer.Status(),
-			Stream:            isStreamResponse(tw),
-			RequestBody:       reqBody,
-			ResponseBody:      tw.buf.Bytes(),
-			RequestTruncated:  reqTruncated,
-			ResponseTruncated: tw.truncated,
+			RequestID:    service.ResolveUsageBillingRequestID(ctx, ""),
+			SessionHash:  extractSessionHash(reqBody),
+			Model:        extractModel(reqBody),
+			Endpoint:     c.FullPath(),
+			StatusCode:   c.Writer.Status(),
+			Stream:       isStreamResponse(tw),
+			RequestBody:  reqBody,
+			ResponseBody: tw.buf.Bytes(),
 		}
 		if apiKey, ok := GetAPIKeyFromContext(c); ok && apiKey != nil {
 			log.APIKeyID = &apiKey.ID
@@ -60,15 +54,6 @@ func RequestResponseCapture(repo service.RequestResponseLogRepository) gin.Handl
 
 		repo.Enqueue(log)
 	}
-}
-
-// capBytes 返回用于留存的字节副本（最多 limit 字节）并标记是否截断。
-// 入参 data 为完整 body；调用方负责用完整 data 还原请求，本函数只决定存什么。
-func capBytes(data []byte) ([]byte, bool) {
-	if len(data) > requestResponseCaptureMaxBytes {
-		return data[:requestResponseCaptureMaxBytes], true
-	}
-	return data, false
 }
 
 // extractSessionHash 从请求体 metadata.user_id 解析出 Claude Code 会话 UUID。
@@ -105,36 +90,20 @@ func extractModel(body []byte) string {
 	return probe.Model
 }
 
-// teeResponseWriter 在写客户端的同时把响应字节累积进 buf（带上限）。
+// teeResponseWriter 在写客户端的同时把全部响应字节累积进 buf（不截断）。
 type teeResponseWriter struct {
 	gin.ResponseWriter
-	buf       *bytes.Buffer
-	limit     int
-	truncated bool
+	buf *bytes.Buffer
 }
 
 func (w *teeResponseWriter) Write(b []byte) (int, error) {
-	w.capture(b)
+	_, _ = w.buf.Write(b) // bytes.Buffer.Write 永不返回 error
 	return w.ResponseWriter.Write(b)
 }
 
 func (w *teeResponseWriter) WriteString(s string) (int, error) {
-	w.capture([]byte(s))
+	_, _ = w.buf.WriteString(s)
 	return w.ResponseWriter.WriteString(s)
-}
-
-func (w *teeResponseWriter) capture(b []byte) {
-	if w.buf.Len() >= w.limit {
-		w.truncated = true
-		return
-	}
-	remain := w.limit - w.buf.Len()
-	if len(b) > remain {
-		w.buf.Write(b[:remain])
-		w.truncated = true
-		return
-	}
-	w.buf.Write(b)
 }
 
 func isStreamResponse(w *teeResponseWriter) bool {
