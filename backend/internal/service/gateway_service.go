@@ -8279,6 +8279,14 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	// by the caller after recording the usage log.
 }
 
+// ResolveUsageBillingRequestID 暴露与 usage_logs.request_id 完全一致的解析逻辑，
+// 供 request/response 捕获中间件在 RecordUsage 之外独立算出同一 request_id 用于 JOIN。
+// 中间件场景不应回退到 "generated:"（会与 usage log 真实值分叉），故 upstreamRequestID 传空，
+// 依赖 RequestLogger 已注入的 ctxkey.RequestID。
+func ResolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string) string {
+	return resolveUsageBillingRequestID(ctx, upstreamRequestID)
+}
+
 func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string) string {
 	if ctx != nil {
 		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
