@@ -57,6 +57,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_5h_",
 	"codex_7d_",
 	"passive_usage_",
+	"inferred_", // 容量反推/定档观测值（AccountCapacityService 写），不影响调度
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{

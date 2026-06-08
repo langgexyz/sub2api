@@ -93,6 +93,24 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	CapacityInference       CapacityInferenceConfig       `mapstructure:"capacity_inference"`
+}
+
+// CapacityInferenceConfig 控制订阅账号容量反推 + 自动定档（只读观测）。
+// 反推公式：账号窗口容量 = 窗口标准成本 / 上游 utilization。
+type CapacityInferenceConfig struct {
+	// 是否启用后台反推任务
+	Enabled bool `mapstructure:"enabled"`
+	// 反推间隔（分钟）
+	IntervalMinutes int `mapstructure:"interval_minutes"`
+	// Pro 档周容量基线（USD），定档吸附阶梯的锚点
+	ProBaselineUSD float64 `mapstructure:"pro_baseline_usd"`
+	// 占比置信门槛：低于此值不反推（外推误差过大），标 unknown
+	MinUtilization float64 `mapstructure:"min_utilization"`
+	// EWMA 平滑系数（0~1），越大越跟新值
+	EWMAAlpha float64 `mapstructure:"ewma_alpha"`
+	// 达到此占比即满置信（1.0）
+	FullConfidenceUtil float64 `mapstructure:"full_confidence_util"`
 }
 
 type LogConfig struct {
@@ -1924,6 +1942,14 @@ func setDefaults() {
 	viper.SetDefault("token_refresh.refresh_before_expiry_hours", 0.5) // 提前30分钟刷新（适配Google 1小时token）
 	viper.SetDefault("token_refresh.max_retries", 3)                   // 最多重试3次
 	viper.SetDefault("token_refresh.retry_backoff_seconds", 2)         // 重试退避基础2秒
+
+	// CapacityInference（订阅账号容量反推 + 自动定档，只读观测）
+	viper.SetDefault("capacity_inference.enabled", true)
+	viper.SetDefault("capacity_inference.interval_minutes", 10)      // 每10分钟反推一次
+	viper.SetDefault("capacity_inference.pro_baseline_usd", 191.0)   // Pro 档周容量基线（实测 009 账号锚定）
+	viper.SetDefault("capacity_inference.min_utilization", 0.05)     // 占比低于5%不反推（外推误差过大）
+	viper.SetDefault("capacity_inference.ewma_alpha", 0.3)           // EWMA 平滑系数
+	viper.SetDefault("capacity_inference.full_confidence_util", 0.5) // 占比达50%即满置信
 
 	// Gemini OAuth - configure via environment variables or config file
 	// GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET
