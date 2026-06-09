@@ -94,31 +94,16 @@
               }}</span>
             </div>
 
-            <!-- 用量窗口（透传绑定号真实 5h / 7d；方向2私有视图：只显百分比+重置，藏美元）-->
-            <div
+            <!-- 用量窗口：透传绑定号真实 5h / 7d；复用账号管理同款 UsageProgressBar
+                 （样式/重置精度一致）。数据=本订阅在窗口内消耗的百分比（方向2私有份额，非号合计）。 -->
+            <UsageProgressBar
               v-for="w in usageWindowsFor(subscription)"
               :key="w.key"
-              class="space-y-2"
-            >
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ w.label }}
-                </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  {{ t('userSubscriptions.usedPercent', { pct: w.percent }) }}
-                </span>
-              </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="w.barClass"
-                  :style="{ width: w.percent + '%' }"
-                ></div>
-              </div>
-              <p v-if="w.resetText" class="text-xs text-gray-500 dark:text-dark-400">
-                {{ w.resetText }}
-              </p>
-            </div>
+              :label="w.label"
+              :utilization="w.utilization"
+              :resets-at="w.resetsAt"
+              :color="w.color"
+            />
 
             <!-- 进度尚未就绪（无反推数据 / 账号未采样）-->
             <div
@@ -145,6 +130,7 @@ import subscriptionsAPI from '@/api/subscriptions'
 import type { UserSubscription, SubscriptionProgress, UsageWindowProgress } from '@/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 import { formatDateOnly } from '@/utils/format'
 import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
 
@@ -183,42 +169,33 @@ async function loadSubscriptions() {
   }
 }
 
+// 喂给 UsageProgressBar（账号管理同款组件）的窗口数据。
+// utilization = 本订阅在该窗口内的消耗百分比（份额视图）；resetsAt = 绑定号真实重置。
 interface UsageWindowView {
   key: string
   label: string
-  percent: number
-  barClass: string
-  resetText: string
+  utilization: number
+  resetsAt: string | null
+  color: 'indigo' | 'emerald'
 }
 
-function barClassByPercent(pct: number): string {
-  if (pct >= 90) return 'bg-red-500'
-  if (pct >= 70) return 'bg-orange-500'
-  return 'bg-green-500'
-}
-
-function formatResetText(secs: number): string {
-  if (secs <= 0) return t('userSubscriptions.resetSoon')
-  const days = Math.floor(secs / 86400)
-  if (days >= 1) return t('userSubscriptions.resetIn', { time: t('userSubscriptions.daysShort', { days }) })
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  return t('userSubscriptions.resetIn', { time: h >= 1 ? `${h}h${m}m` : `${m}m` })
-}
-
-function windowView(key: string, label: string, w?: UsageWindowProgress | null): UsageWindowView | null {
+function windowView(
+  key: string,
+  label: string,
+  color: 'indigo' | 'emerald',
+  w?: UsageWindowProgress | null
+): UsageWindowView | null {
   if (!w) return null
-  const percent = Math.round(w.percentage)
-  return { key, label, percent, barClass: barClassByPercent(percent), resetText: formatResetText(w.resets_in_seconds) }
+  return { key, label, color, utilization: w.percentage, resetsAt: w.resets_at }
 }
 
 function usageWindowsFor(sub: UserSubscription): UsageWindowView[] {
   const p = progressMap.value[sub.id]
   if (!p) return []
   const out: UsageWindowView[] = []
-  const fh = windowView('5h', t('userSubscriptions.fiveHourUsage'), p.five_hour)
+  const fh = windowView('5h', '5h', 'indigo', p.five_hour)
   if (fh) out.push(fh)
-  const wk = windowView('7d', t('userSubscriptions.sevenDayUsage'), p.weekly)
+  const wk = windowView('7d', '7d', 'emerald', p.weekly)
   if (wk) out.push(wk)
   return out
 }
