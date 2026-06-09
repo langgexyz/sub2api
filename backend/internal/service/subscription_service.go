@@ -10,7 +10,6 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -48,7 +47,8 @@ type SubscriptionService struct {
 	userSubRepo         UserSubscriptionRepository
 	billingCacheService *BillingCacheService
 	entClient           *dbent.Client
-	accountRepo         AccountRepository // 可选：订阅型 group 透传绑定号真实 5h/7d 窗口用；nil 回退网关窗口
+	accountRepo         AccountRepository  // 可选：订阅型 group 透传绑定号真实 5h/7d 窗口用；nil 回退网关窗口
+	usageLogRepo        UsageLogRepository // 可选：算订阅在窗口内实耗（原生 SQL 求和，正确处理 decimal）
 
 	// L1 缓存：加速中间件热路径的订阅查询
 	subCacheL1     *ristretto.Cache
@@ -76,6 +76,11 @@ func NewSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscript
 // 可选注入；未注入时订阅进度回退到网关 daily/weekly/monthly 窗口。
 func (s *SubscriptionService) SetAccountReader(r AccountRepository) {
 	s.accountRepo = r
+}
+
+// SetUsageReader 注入用量仓储，用于算订阅在号窗口内的实耗（份额展示 + 强制）。
+func (s *SubscriptionService) SetUsageReader(r UsageLogRepository) {
+	s.usageLogRepo = r
 }
 
 func (s *SubscriptionService) initMaintenanceQueue(cfg *config.Config) {
@@ -1131,24 +1136,15 @@ func (s *SubscriptionService) applyAccountWindows(ctx context.Context, sub *User
 
 // subscriptionWindowCost 求某订阅(user+group)在 [since, now) 内的标准成本之和（USD）。
 func (s *SubscriptionService) subscriptionWindowCost(ctx context.Context, userID, groupID int64, since time.Time) float64 {
-	if s.entClient == nil {
+	if s.usageLogRepo == nil {
 		return 0
 	}
-	var rows []struct {
-		Sum *float64 `json:"sum"`
-	}
-	err := s.entClient.UsageLog.Query().
-		Where(
-			usagelog.UserID(userID),
-			usagelog.GroupID(groupID),
-			usagelog.CreatedAtGTE(since),
-		).
-		Aggregate(dbent.As(dbent.Sum(usagelog.FieldTotalCost), "sum")).
-		Scan(ctx, &rows)
-	if err != nil || len(rows) == 0 || rows[0].Sum == nil {
+	// 原生 SQL COALESCE(SUM(total_cost))——正确处理 decimal 列（ent 聚合扫 decimal 会得 0）
+	cost, err := s.usageLogRepo.GetUserGroupWindowCost(ctx, userID, groupID, since)
+	if err != nil {
 		return 0
 	}
-	return *rows[0].Sum
+	return cost
 }
 
 // buildWindowProgress 组装一个窗口进度（钳百分比/剩余/重置秒数）。

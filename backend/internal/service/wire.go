@@ -160,9 +160,10 @@ func ProvideAccountCapacityService(accountRepo AccountRepository, usageLogRepo U
 }
 
 // ProvideSubscriptionService 构造订阅服务并注入账号仓储（订阅型 group 透传绑定号真实 5h/7d 窗口用）。
-func ProvideSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscriptionRepository, billingCacheService *BillingCacheService, entClient *dbent.Client, cfg *config.Config, accountRepo AccountRepository) *SubscriptionService {
+func ProvideSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscriptionRepository, billingCacheService *BillingCacheService, entClient *dbent.Client, cfg *config.Config, accountRepo AccountRepository, usageLogRepo UsageLogRepository) *SubscriptionService {
 	svc := NewSubscriptionService(groupRepo, userSubRepo, billingCacheService, entClient, cfg)
 	svc.SetAccountReader(accountRepo)
+	svc.SetUsageReader(usageLogRepo)
 	return svc
 }
 
