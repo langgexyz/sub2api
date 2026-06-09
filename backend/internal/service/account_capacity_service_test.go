@@ -26,6 +26,9 @@ func TestInferCapacity(t *testing.T) {
 		{"prod_5h", 4.5128, 0.18, 0.05, 25.07, true},
 		{"below_threshold", 10, 0.03, 0.05, 0, false},
 		{"zero_util", 10, 0, 0.05, 0, false},
+		// 无信号：窗口内零成本(如凌晨低峰 5h 无流量)即便 util 快照非零也跳过，不写假的 0
+		{"zero_cost", 0, 0.18, 0.05, 0, false},
+		{"negative_cost", -1, 0.2, 0.05, 0, false},
 		{"exactly_threshold", 10, 0.05, 0.05, 200, true},
 	}
 	for _, c := range cases {
