@@ -139,6 +139,42 @@ func TestOpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+// 回归：内层中间件二次包装 c.Writer（内嵌 opsCaptureWriter w）时，OpsErrorLogger
+// 的 defer 不能释放 w——否则把 w.ResponseWriter 置 nil 污染链，外层 Logger 调
+// c.Writer.Status() nil panic（非流式 gateway 请求 502 的根因）。
+func TestOpsErrorLoggerMiddleware_InnerRewrapDoesNotCorrupt(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(middleware2.Recovery())
+	r.Use(middleware2.Logger()) // 外层，request 末尾会调 c.Writer.Status()
+	r.GET("/v1/messages",
+		OpsErrorLoggerMiddleware(nil),
+		// 模拟 request_response_capture：二次包装 c.Writer 且不还原
+		func(c *gin.Context) {
+			c.Writer = &rewrapResponseWriter{ResponseWriter: c.Writer}
+			c.Next()
+		},
+		func(c *gin.Context) {
+			c.Status(http.StatusOK)
+			_, _ = c.Writer.Write([]byte("ok"))
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/messages", nil)
+
+	require.NotPanics(t, func() {
+		r.ServeHTTP(rec, req)
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// rewrapResponseWriter 模拟内层包装器（如 teeResponseWriter），内嵌当前 c.Writer。
+type rewrapResponseWriter struct {
+	gin.ResponseWriter
+}
+
 func TestIsKnownOpsErrorType(t *testing.T) {
 	known := []string{
 		"invalid_request_error",
