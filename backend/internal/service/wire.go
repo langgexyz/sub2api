@@ -159,6 +159,13 @@ func ProvideAccountCapacityService(accountRepo AccountRepository, usageLogRepo U
 	return svc
 }
 
+// ProvideAccountUsageProbeService creates and starts AccountUsageProbeService.
+func ProvideAccountUsageProbeService(accountRepo AccountRepository, usageService *AccountUsageService, cfg *config.Config) *AccountUsageProbeService {
+	svc := NewAccountUsageProbeService(accountRepo, usageService, cfg.AccountUsageProbe)
+	svc.Start()
+	return svc
+}
+
 // ProvideSubscriptionService 构造订阅服务并注入账号仓储（订阅型 group 透传绑定号真实 5h/7d 窗口用）。
 func ProvideSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscriptionRepository, billingCacheService *BillingCacheService, entClient *dbent.Client, cfg *config.Config, accountRepo AccountRepository, usageLogRepo UsageLogRepository) *SubscriptionService {
 	svc := NewSubscriptionService(groupRepo, userSubRepo, billingCacheService, entClient, cfg)
@@ -558,6 +565,7 @@ var ProviderSet = wire.NewSet(
 	ProvideTokenRefreshService,
 	ProvideAccountExpiryService,
 	ProvideAccountCapacityService,
+	ProvideAccountUsageProbeService,
 	ProvideSubscriptionExpiryService,
 	ProvideTimingWheelService,
 	ProvideDashboardAggregationService,
