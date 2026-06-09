@@ -70,6 +70,9 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Int("subscription_slots").
+			Default(1).
+			Comment("订阅型 group 的固定槽位数 N：绑定号的容量按 N 等分给各订阅，默认 1（单订阅独占）"),
 		field.Int("default_validity_days").
 			Default(30),
 

@@ -254,6 +254,27 @@ func (_u *GroupUpdate) ClearMonthlyLimitUsd() *GroupUpdate {
 	return _u
 }
 
+// SetSubscriptionSlots sets the "subscription_slots" field.
+func (_u *GroupUpdate) SetSubscriptionSlots(v int) *GroupUpdate {
+	_u.mutation.ResetSubscriptionSlots()
+	_u.mutation.SetSubscriptionSlots(v)
+	return _u
+}
+
+// SetNillableSubscriptionSlots sets the "subscription_slots" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableSubscriptionSlots(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetSubscriptionSlots(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionSlots adds value to the "subscription_slots" field.
+func (_u *GroupUpdate) AddSubscriptionSlots(v int) *GroupUpdate {
+	_u.mutation.AddSubscriptionSlots(v)
+	return _u
+}
+
 // SetDefaultValidityDays sets the "default_validity_days" field.
 func (_u *GroupUpdate) SetDefaultValidityDays(v int) *GroupUpdate {
 	_u.mutation.ResetDefaultValidityDays()
@@ -1019,6 +1040,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.MonthlyLimitUsdCleared() {
 		_spec.ClearField(group.FieldMonthlyLimitUsd, field.TypeFloat64)
 	}
+	if value, ok := _u.mutation.SubscriptionSlots(); ok {
+		_spec.SetField(group.FieldSubscriptionSlots, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionSlots(); ok {
+		_spec.AddField(group.FieldSubscriptionSlots, field.TypeInt, value)
+	}
 	if value, ok := _u.mutation.DefaultValidityDays(); ok {
 		_spec.SetField(group.FieldDefaultValidityDays, field.TypeInt, value)
 	}
@@ -1664,6 +1691,27 @@ func (_u *GroupUpdateOne) AddMonthlyLimitUsd(v float64) *GroupUpdateOne {
 // ClearMonthlyLimitUsd clears the value of the "monthly_limit_usd" field.
 func (_u *GroupUpdateOne) ClearMonthlyLimitUsd() *GroupUpdateOne {
 	_u.mutation.ClearMonthlyLimitUsd()
+	return _u
+}
+
+// SetSubscriptionSlots sets the "subscription_slots" field.
+func (_u *GroupUpdateOne) SetSubscriptionSlots(v int) *GroupUpdateOne {
+	_u.mutation.ResetSubscriptionSlots()
+	_u.mutation.SetSubscriptionSlots(v)
+	return _u
+}
+
+// SetNillableSubscriptionSlots sets the "subscription_slots" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableSubscriptionSlots(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetSubscriptionSlots(*v)
+	}
+	return _u
+}
+
+// AddSubscriptionSlots adds value to the "subscription_slots" field.
+func (_u *GroupUpdateOne) AddSubscriptionSlots(v int) *GroupUpdateOne {
+	_u.mutation.AddSubscriptionSlots(v)
 	return _u
 }
 
@@ -2461,6 +2509,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if _u.mutation.MonthlyLimitUsdCleared() {
 		_spec.ClearField(group.FieldMonthlyLimitUsd, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.SubscriptionSlots(); ok {
+		_spec.SetField(group.FieldSubscriptionSlots, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedSubscriptionSlots(); ok {
+		_spec.AddField(group.FieldSubscriptionSlots, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.DefaultValidityDays(); ok {
 		_spec.SetField(group.FieldDefaultValidityDays, field.TypeInt, value)
