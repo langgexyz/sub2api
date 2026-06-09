@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -45,6 +46,7 @@ type SubscriptionService struct {
 	userSubRepo         UserSubscriptionRepository
 	billingCacheService *BillingCacheService
 	entClient           *dbent.Client
+	accountRepo         AccountRepository // 可选：订阅型 group 透传绑定号真实 5h/7d 窗口用；nil 回退网关窗口
 
 	// L1 缓存：加速中间件热路径的订阅查询
 	subCacheL1     *ristretto.Cache
@@ -66,6 +68,12 @@ func NewSubscriptionService(groupRepo GroupRepository, userSubRepo UserSubscript
 	svc.initSubCache(cfg)
 	svc.initMaintenanceQueue(cfg)
 	return svc
+}
+
+// SetAccountReader 注入账号仓储，用于订阅型 group 透传绑定号的真实 5h/7d 窗口（容量/重置）。
+// 可选注入；未注入时订阅进度回退到网关 daily/weekly/monthly 窗口。
+func (s *SubscriptionService) SetAccountReader(r AccountRepository) {
+	s.accountRepo = r
 }
 
 func (s *SubscriptionService) initMaintenanceQueue(cfg *config.Config) {
@@ -952,8 +960,9 @@ type SubscriptionProgress struct {
 	GroupName     string               `json:"group_name"`
 	ExpiresAt     time.Time            `json:"expires_at"`
 	ExpiresInDays int                  `json:"expires_in_days"`
+	FiveHour      *UsageWindowProgress `json:"five_hour,omitempty"` // 订阅型 group 透传绑定号的真实 5h 窗口
 	Daily         *UsageWindowProgress `json:"daily,omitempty"`
-	Weekly        *UsageWindowProgress `json:"weekly,omitempty"`
+	Weekly        *UsageWindowProgress `json:"weekly,omitempty"` // 透传模式下 = 绑定号真实 7d 窗口
 	Monthly       *UsageWindowProgress `json:"monthly,omitempty"`
 }
 
@@ -983,7 +992,9 @@ func (s *SubscriptionService) GetSubscriptionProgress(ctx context.Context, subsc
 		}
 	}
 
-	return s.calculateProgress(sub, group), nil
+	progress := s.calculateProgress(sub, group)
+	s.applyAccountWindows(ctx, sub, group, progress)
+	return progress, nil
 }
 
 // calculateProgress 根据已加载的订阅和分组数据计算使用进度（纯内存计算，无 DB 查询）
@@ -1073,6 +1084,96 @@ func (s *SubscriptionService) calculateProgress(sub *UserSubscription, group *Gr
 	return progress
 }
 
+// applyAccountWindows 对订阅型 group，把进度的窗口透传成绑定号的真实 5h/7d：
+// 限额 = 号反推容量（N=1，单订阅独占；多订阅均分留后续）、重置 = 号真实重置、
+// 用量 = 该订阅(user+group)在窗口期内实耗。覆盖 FiveHour/Weekly，清掉网关派生的 Daily/Monthly。
+// accountRepo 未注入、非订阅型、或号无反推容量时不改动（回退原网关窗口）。
+func (s *SubscriptionService) applyAccountWindows(ctx context.Context, sub *UserSubscription, group *Group, progress *SubscriptionProgress) {
+	if s == nil || s.accountRepo == nil || group == nil || progress == nil || !group.IsSubscriptionType() {
+		return
+	}
+	accounts, err := s.accountRepo.ListByGroup(ctx, group.ID)
+	if err != nil || len(accounts) == 0 {
+		return
+	}
+	acc := &accounts[0] // 订阅型 group 约定只绑 1 个号
+	now := time.Now()
+	changed := false
+
+	// 7d 窗口（透传号真实 7d）
+	if cap7d := acc.getExtraFloat64("inferred_capacity_7d"); cap7d > 0 {
+		if reset7dUnix := acc.getExtraFloat64("passive_usage_7d_reset"); reset7dUnix > 0 {
+			reset7d := time.Unix(int64(reset7dUnix), 0)
+			start7d := reset7d.Add(-7 * 24 * time.Hour)
+			used := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start7d)
+			progress.Weekly = buildWindowProgress(cap7d, used, start7d, reset7d, now)
+			changed = true
+		}
+	}
+
+	// 5h 窗口（透传号真实 5h，重置 = session_window_end）
+	if cap5h := acc.getExtraFloat64("inferred_capacity_5h"); cap5h > 0 && acc.SessionWindowEnd != nil {
+		reset5h := *acc.SessionWindowEnd
+		start5h := reset5h.Add(-5 * time.Hour)
+		used := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start5h)
+		progress.FiveHour = buildWindowProgress(cap5h, used, start5h, reset5h, now)
+		changed = true
+	}
+
+	// 透传模式下隐藏网关派生的日/月窗口（保持卡片只显 5h + 7d）
+	if changed {
+		progress.Daily = nil
+		progress.Monthly = nil
+	}
+}
+
+// subscriptionWindowCost 求某订阅(user+group)在 [since, now) 内的标准成本之和（USD）。
+func (s *SubscriptionService) subscriptionWindowCost(ctx context.Context, userID, groupID int64, since time.Time) float64 {
+	if s.entClient == nil {
+		return 0
+	}
+	var rows []struct {
+		Sum *float64 `json:"sum"`
+	}
+	err := s.entClient.UsageLog.Query().
+		Where(
+			usagelog.UserID(userID),
+			usagelog.GroupID(groupID),
+			usagelog.CreatedAtGTE(since),
+		).
+		Aggregate(dbent.As(dbent.Sum(usagelog.FieldTotalCost), "sum")).
+		Scan(ctx, &rows)
+	if err != nil || len(rows) == 0 || rows[0].Sum == nil {
+		return 0
+	}
+	return *rows[0].Sum
+}
+
+// buildWindowProgress 组装一个窗口进度（钳百分比/剩余/重置秒数）。
+func buildWindowProgress(limit, used float64, start, reset, now time.Time) *UsageWindowProgress {
+	w := &UsageWindowProgress{
+		LimitUSD:        limit,
+		UsedUSD:         used,
+		RemainingUSD:    limit - used,
+		WindowStart:     start,
+		ResetsAt:        reset,
+		ResetsInSeconds: int64(reset.Sub(now).Seconds()),
+	}
+	if limit > 0 {
+		w.Percentage = used / limit * 100
+	}
+	if w.RemainingUSD < 0 {
+		w.RemainingUSD = 0
+	}
+	if w.Percentage > 100 {
+		w.Percentage = 100
+	}
+	if w.ResetsInSeconds < 0 {
+		w.ResetsInSeconds = 0
+	}
+	return w
+}
+
 // GetUserSubscriptionsWithProgress 获取用户所有订阅及进度
 func (s *SubscriptionService) GetUserSubscriptionsWithProgress(ctx context.Context, userID int64) ([]SubscriptionProgress, error) {
 	// ListActiveByUserID 已使用 .WithGroup() eager-load Group 关联，1 次查询获取所有数据
@@ -1088,7 +1189,9 @@ func (s *SubscriptionService) GetUserSubscriptionsWithProgress(ctx context.Conte
 		if group == nil {
 			continue
 		}
-		progresses = append(progresses, *s.calculateProgress(sub, group))
+		p := s.calculateProgress(sub, group)
+		s.applyAccountWindows(ctx, sub, group, p)
+		progresses = append(progresses, *p)
 	}
 
 	return progresses, nil
