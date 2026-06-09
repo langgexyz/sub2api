@@ -14,8 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// subscriptionRateLimitMessage 订阅额度/份额用尽时回给用户的中性限流文案（对齐上游 rate_limit_error，不泄露内部概念）。
-const subscriptionRateLimitMessage = "Rate limit exceeded, please retry later"
+// subscriptionRateLimitMessage 订阅额度/份额用尽时回给用户的限流文案。
+// 逐字复用网关真实上游 429 的客户端文案（service.UpstreamRateLimitClientMessage），
+// 让份额用尽与真实上游限流对客户端不可区分，且不泄露内部概念。
+const subscriptionRateLimitMessage = service.UpstreamRateLimitClientMessage
 
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
 func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
