@@ -1551,28 +1551,28 @@ export interface UserSubscription {
   group?: Group
 }
 
+// 与后端 service.UsageWindowProgress 对齐
+export interface UsageWindowProgress {
+  limit_usd: number
+  used_usd: number
+  remaining_usd: number
+  percentage: number
+  window_start: string
+  resets_at: string
+  resets_in_seconds: number
+}
+
+// 与后端 service.SubscriptionProgress 对齐。订阅型 group 透传绑定号真实窗口时，
+// five_hour + weekly 由绑定号驱动（限额=反推容量、重置=号真实重置），daily/monthly 为空。
 export interface SubscriptionProgress {
-  subscription_id: number
-  daily: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  weekly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  monthly: {
-    used: number
-    limit: number | null
-    percentage: number
-    reset_in_seconds: number | null
-  } | null
-  expires_at: string | null
-  days_remaining: number | null
+  id: number
+  group_name: string
+  expires_at: string
+  expires_in_days: number
+  five_hour?: UsageWindowProgress | null
+  daily?: UsageWindowProgress | null
+  weekly?: UsageWindowProgress | null
+  monthly?: UsageWindowProgress | null
 }
 
 export interface AssignSubscriptionRequest {

@@ -6593,6 +6593,12 @@ export default {
     daysRemaining: '{days} days remaining',
     expiresOn: 'Expires on {date}',
     resetIn: 'Resets in {time}',
+    usedPercent: 'Used {pct}%',
+    fiveHourUsage: '5-hour usage',
+    sevenDayUsage: '7-day usage',
+    usageNotReady: 'Usage stats preparing',
+    resetSoon: 'Resetting soon',
+    daysShort: '{days}d',
     quotaEndsIn: 'Quota ends in {time}',
     windowNotActive: 'Awaiting first use',
     usageOf: '{used} of {limit}'

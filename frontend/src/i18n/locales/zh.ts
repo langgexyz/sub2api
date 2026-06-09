@@ -6746,6 +6746,12 @@ export default {
     daysRemaining: '剩余 {days} 天',
     expiresOn: '{date} 到期',
     resetIn: '{time} 后重置',
+    usedPercent: '已用 {pct}%',
+    fiveHourUsage: '5 小时用量',
+    sevenDayUsage: '7 天用量',
+    usageNotReady: '用量统计准备中',
+    resetSoon: '即将重置',
+    daysShort: '{days} 天',
     quotaEndsIn: '额度将在 {time} 后结束',
     windowNotActive: '等待首次使用',
     usageOf: '已用 {used} / {limit}'
