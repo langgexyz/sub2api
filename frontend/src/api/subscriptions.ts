@@ -42,8 +42,14 @@ export async function getActiveSubscriptions(): Promise<UserSubscription[]> {
 /**
  * Get progress for all user's active subscriptions
  */
-export async function getSubscriptionsProgress(): Promise<SubscriptionProgress[]> {
-  const response = await apiClient.get<SubscriptionProgress[]>('/subscriptions/progress')
+// /subscriptions/progress 返回 [{subscription, progress}]（后端 SubscriptionProgressInfo）
+export interface SubscriptionProgressInfo {
+  subscription: UserSubscription
+  progress: SubscriptionProgress
+}
+
+export async function getSubscriptionsProgress(): Promise<SubscriptionProgressInfo[]> {
+  const response = await apiClient.get<SubscriptionProgressInfo[]>('/subscriptions/progress')
   return response.data
 }
 
