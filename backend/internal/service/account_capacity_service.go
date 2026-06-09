@@ -178,9 +178,14 @@ func (s *AccountCapacityService) windowStandardCost(ctx context.Context, account
 
 // --- 纯函数（可单测，无副作用）---
 
-// inferCapacity 反推容量 = 窗口成本 / 占比。占比低于置信门槛或非正时返回 (0,false)，
-// 避免低占比下的巨大外推误差和除零。
+// inferCapacity 反推容量 = 窗口成本 / 占比。返回 (0,false) 表示本次无有效信号、应跳过：
+//   - 占比非正或低于置信门槛：外推误差过大 / 除零
+//   - 成本非正：窗口内无消费 = 无信号（占比快照可能是更早请求的残值，
+//     与空成本窗口错配会算出假的 0；跳过以保留上次好值，由 EWMA 平滑过渡）
 func inferCapacity(costUSD, utilization, minUtilization float64) (float64, bool) {
+	if costUSD <= 0 {
+		return 0, false
+	}
 	if utilization <= 0 || utilization < minUtilization {
 		return 0, false
 	}
