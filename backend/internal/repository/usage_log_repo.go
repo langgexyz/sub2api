@@ -2110,6 +2110,17 @@ func (r *usageLogRepository) GetAccountWindowStats(ctx context.Context, accountI
 	return stats, nil
 }
 
+// GetUserGroupWindowCost 求某订阅(user+group)在 [since, now) 窗口内的标准成本之和（total_cost, USD）。
+// 用原生 SQL COALESCE(SUM)，正确处理 decimal 列（ent 聚合扫 decimal 会得 0）。
+func (r *usageLogRepository) GetUserGroupWindowCost(ctx context.Context, userID, groupID int64, since time.Time) (float64, error) {
+	query := `SELECT COALESCE(SUM(total_cost), 0) FROM usage_logs WHERE user_id = $1 AND group_id = $2 AND created_at >= $3`
+	var cost float64
+	if err := scanSingleRow(ctx, r.sql, query, []any{userID, groupID, since}, &cost); err != nil {
+		return 0, err
+	}
+	return cost, nil
+}
+
 // GetAccountWindowStatsBatch 批量获取同一窗口起点下多个账号的统计数据。
 // 返回 map[accountID]*AccountStats，未命中的账号会返回零值统计，便于上层直接复用。
 func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error) {

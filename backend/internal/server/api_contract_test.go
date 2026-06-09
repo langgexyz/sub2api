@@ -2298,6 +2298,10 @@ func (r *stubUsageLogRepo) GetAccountWindowStats(ctx context.Context, accountID 
 	return nil, errors.New("not implemented")
 }
 
+func (r *stubUsageLogRepo) GetUserGroupWindowCost(ctx context.Context, userID, groupID int64, since time.Time) (float64, error) {
+	return 0, nil
+}
+
 func (r *stubUsageLogRepo) GetAccountTodayStats(ctx context.Context, accountID int64) (*usagestats.AccountStats, error) {
 	return nil, errors.New("not implemented")
 }
