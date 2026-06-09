@@ -489,12 +489,15 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
 		defer func() {
-			// Restore the original writer before returning so outer middlewares
-			// don't observe a pooled wrapper that has been released.
+			// 仅当没有内层中间件二次包装 c.Writer（c.Writer 仍是 w）时，才还原并释放回池。
+			// 若内层已二次包装（如 request_response_capture 的 teeResponseWriter 内嵌 w），
+			// w 仍被该包装链引用——此时释放会把 w.ResponseWriter 置 nil 污染链，导致外层
+			// Logger/Recovery 访问 c.Writer.Status() 触发 nil panic（非流式请求 502）。
+			// 这种情况不还池，交 GC 回收。
 			if c.Writer == w {
 				c.Writer = originalWriter
+				releaseOpsCaptureWriter(w)
 			}
-			releaseOpsCaptureWriter(w)
 		}()
 		c.Writer = w
 		c.Next()
