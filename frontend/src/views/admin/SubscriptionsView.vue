@@ -213,130 +213,20 @@
 
           <template #cell-usage="{ row }">
             <div class="min-w-[280px] space-y-2">
-              <!-- Daily Usage -->
-              <div v-if="row.group?.daily_limit_usd" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.daily') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                    <div
-                      class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.daily_usage_usd, row.group?.daily_limit_usd)"
-                      :style="{
-                        width: getProgressWidth(row.daily_usage_usd, row.group?.daily_limit_usd)
-                      }"
-                    ></div>
-                  </div>
-                  <span class="usage-amount">
-                    ${{ row.daily_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ row.group?.daily_limit_usd?.toFixed(2) }}
-                  </span>
-                </div>
-                <div class="reset-info" v-if="row.daily_window_start">
-                  <svg
-                    class="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatDailyUsageWindow(row) }}</span>
-                </div>
-              </div>
-
-              <!-- Weekly Usage -->
-              <div v-if="row.group?.weekly_limit_usd" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.weekly') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                    <div
-                      class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.weekly_usage_usd, row.group?.weekly_limit_usd)"
-                      :style="{
-                        width: getProgressWidth(row.weekly_usage_usd, row.group?.weekly_limit_usd)
-                      }"
-                    ></div>
-                  </div>
-                  <span class="usage-amount">
-                    ${{ row.weekly_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ row.group?.weekly_limit_usd?.toFixed(2) }}
-                  </span>
-                </div>
-                <div class="reset-info" v-if="row.weekly_window_start">
-                  <svg
-                    class="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatResetTime(row.weekly_window_start, 'weekly') }}</span>
-                </div>
-              </div>
-
-              <!-- Monthly Usage -->
-              <div v-if="row.group?.monthly_limit_usd" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.monthly') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
-                    <div
-                      class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.monthly_usage_usd, row.group?.monthly_limit_usd)"
-                      :style="{
-                        width: getProgressWidth(row.monthly_usage_usd, row.group?.monthly_limit_usd)
-                      }"
-                    ></div>
-                  </div>
-                  <span class="usage-amount">
-                    ${{ row.monthly_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ row.group?.monthly_limit_usd?.toFixed(2) }}
-                  </span>
-                </div>
-                <div class="reset-info" v-if="row.monthly_window_start">
-                  <svg
-                    class="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatResetTime(row.monthly_window_start, 'monthly') }}</span>
-                </div>
-              </div>
-
-              <!-- No Limits - Unlimited badge -->
+              <!-- 用量：透传绑定号真实 5h/7d 份额（与用户卡片一致，UsageProgressBar，藏美元）-->
+              <UsageProgressBar
+                v-for="w in usageWindowsFor(row)"
+                :key="w.key"
+                :label="w.label"
+                :utilization="w.utilization"
+                :resets-at="w.resetsAt"
+                :color="w.color"
+              />
               <div
-                v-if="
-                  !row.group?.daily_limit_usd &&
-                  !row.group?.weekly_limit_usd &&
-                  !row.group?.monthly_limit_usd
-                "
-                class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 dark:from-emerald-900/20 dark:to-teal-900/20"
+                v-if="usageWindowsFor(row).length === 0"
+                class="text-xs text-gray-400 dark:text-dark-500"
               >
-                <span class="text-lg text-emerald-600 dark:text-emerald-400">∞</span>
-                <span class="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                  {{ t('admin.subscriptions.unlimited') }}
-                </span>
+                {{ t('userSubscriptions.usageNotReady') }}
               </div>
             </div>
           </template>
@@ -742,7 +632,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { UserSubscription, Group, GroupPlatform, SubscriptionType } from '@/types'
+import type { UserSubscription, Group, GroupPlatform, SubscriptionType, SubscriptionProgress } from '@/types'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateOnly } from '@/utils/format'
@@ -758,7 +648,7 @@ import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { getRemainingDurationParts, isOneTimeDailyQuota, type RemainingDurationParts } from '@/utils/subscriptionQuota'
+import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -897,6 +787,8 @@ const statusOptions = computed(() => [
 ])
 
 const subscriptions = ref<UserSubscription[]>([])
+// 每行订阅的进度（5h/7d 透传绑定号份额）；key = subscription id
+const progressMap = ref<Record<number, SubscriptionProgress>>({})
 const groups = ref<Group[]>([])
 const loading = ref(false)
 let abortController: AbortController | null = null
@@ -1019,6 +911,7 @@ const loadSubscriptions = async () => {
     subscriptions.value = response.items
     pagination.total = response.total
     pagination.pages = response.pages
+    void loadProgress(response.items)
   } catch (error: any) {
     if (signal.aborted || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
       return
@@ -1298,79 +1191,40 @@ const isExpiringSoon = (expiresAt: string): boolean => {
   return days !== null && days <= 7
 }
 
-const getProgressWidth = (used: number | null | undefined, limit: number | null): string => {
-  if (!limit || limit === 0) return '0%'
-  const usedValue = used ?? 0
-  const percentage = Math.min((usedValue / limit) * 100, 100)
-  return `${percentage}%`
+// 逐行拉取订阅进度（5h/7d 透传绑定号份额），失败不阻塞列表
+const loadProgress = async (rows: UserSubscription[]) => {
+  const entries = await Promise.all(
+    rows.map(async (r) => {
+      try {
+        return [r.id, await adminAPI.subscriptions.getProgress(r.id)] as const
+      } catch {
+        return null
+      }
+    })
+  )
+  progressMap.value = Object.fromEntries(entries.filter((e): e is NonNullable<typeof e> => e !== null))
 }
 
-const getProgressClass = (used: number | null | undefined, limit: number | null): string => {
-  if (!limit || limit === 0) return 'bg-gray-400'
-  const usedValue = used ?? 0
-  const percentage = (usedValue / limit) * 100
-  if (percentage >= 90) return 'bg-red-500'
-  if (percentage >= 70) return 'bg-orange-500'
-  return 'bg-green-500'
+// 喂给 UsageProgressBar 的窗口数据：utilization = 份额消耗百分比，resetsAt = 号真实重置
+interface UsageWindowView {
+  key: string
+  label: string
+  utilization: number
+  resetsAt: string | null
+  color: 'indigo' | 'emerald'
 }
 
-const formatResetDuration = (parts: RemainingDurationParts): string => {
-  if (parts.days > 0) {
-    return t('admin.subscriptions.resetInDaysHours', { days: parts.days, hours: parts.hours })
+const usageWindowsFor = (row: UserSubscription): UsageWindowView[] => {
+  const p = progressMap.value[row.id]
+  if (!p) return []
+  const out: UsageWindowView[] = []
+  if (p.five_hour) {
+    out.push({ key: '5h', label: '5h', utilization: p.five_hour.percentage, resetsAt: p.five_hour.resets_at, color: 'indigo' })
   }
-
-  if (parts.hours > 0) {
-    return t('admin.subscriptions.resetInHoursMinutes', { hours: parts.hours, minutes: parts.minutes })
+  if (p.weekly) {
+    out.push({ key: '7d', label: '7d', utilization: p.weekly.percentage, resetsAt: p.weekly.resets_at, color: 'emerald' })
   }
-
-  return t('admin.subscriptions.resetInMinutes', { minutes: parts.minutes })
-}
-
-const formatQuotaEndDuration = (parts: RemainingDurationParts): string => {
-  if (parts.days > 0) {
-    return t('admin.subscriptions.quotaEndsInDaysHours', { days: parts.days, hours: parts.hours })
-  }
-
-  if (parts.hours > 0) {
-    return t('admin.subscriptions.quotaEndsInHoursMinutes', { hours: parts.hours, minutes: parts.minutes })
-  }
-
-  return t('admin.subscriptions.quotaEndsInMinutes', { minutes: parts.minutes })
-}
-
-const formatDailyUsageWindow = (subscription: UserSubscription): string => {
-  if (isOneTimeDailyQuota(subscription) && subscription.expires_at) {
-    const parts = getRemainingDurationParts(subscription.expires_at)
-    return parts ? formatQuotaEndDuration(parts) : t('admin.subscriptions.windowNotActive')
-  }
-
-  return formatResetTime(subscription.daily_window_start, 'daily')
-}
-
-// Format reset time based on window start and period type
-const formatResetTime = (windowStart: string | null, period: 'daily' | 'weekly' | 'monthly'): string => {
-  if (!windowStart) return t('admin.subscriptions.windowNotActive')
-
-  const start = new Date(windowStart)
-  const now = new Date()
-
-  // Calculate reset time based on period
-  let resetTime: Date
-  switch (period) {
-    case 'daily':
-      resetTime = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-      break
-    case 'weekly':
-      resetTime = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
-      break
-    case 'monthly':
-      resetTime = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000)
-      break
-  }
-
-  const parts = getRemainingDurationParts(resetTime, now)
-
-  return parts ? formatResetDuration(parts) : t('admin.subscriptions.windowNotActive')
+  return out
 }
 
 // Handle click outside to close dropdowns
