@@ -169,12 +169,12 @@ const loading = ref(true)
 async function loadSubscriptions() {
   try {
     loading.value = true
-    const [subs, progresses] = await Promise.all([
+    const [subs, infos] = await Promise.all([
       subscriptionsAPI.getMySubscriptions(),
-      subscriptionsAPI.getSubscriptionsProgress().catch(() => [] as SubscriptionProgress[])
+      subscriptionsAPI.getSubscriptionsProgress().catch(() => [])
     ])
     subscriptions.value = subs
-    progressMap.value = Object.fromEntries(progresses.map((p) => [p.id, p]))
+    progressMap.value = Object.fromEntries(infos.map((i) => [i.subscription.id, i.progress]))
   } catch (error) {
     console.error('Failed to load subscriptions:', error)
     appStore.showError(t('userSubscriptions.failedToLoad'))
