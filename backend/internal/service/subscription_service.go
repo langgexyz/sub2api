@@ -36,6 +36,8 @@ var (
 	ErrDailyLimitExceeded         = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded        = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
 	ErrMonthlyLimitExceeded       = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
+	ErrShare5hExceeded            = infraerrors.TooManyRequests("USAGE_LIMIT_EXCEEDED", "5h usage share exceeded")
+	ErrShare7dExceeded            = infraerrors.TooManyRequests("USAGE_LIMIT_EXCEEDED", "7d usage share exceeded")
 	ErrSubscriptionNilInput       = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
 	ErrAdjustWouldExpire          = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
 )
@@ -1106,7 +1108,7 @@ func (s *SubscriptionService) applyAccountWindows(ctx context.Context, sub *User
 			reset7d := time.Unix(int64(reset7dUnix), 0)
 			start7d := reset7d.Add(-7 * 24 * time.Hour)
 			used := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start7d)
-			progress.Weekly = buildWindowProgress(cap7d, used, start7d, reset7d, now)
+			progress.Weekly = buildWindowProgress(subscriptionShare(cap7d, group.SubscriptionSlots), used, start7d, reset7d, now)
 			changed = true
 		}
 	}
@@ -1116,7 +1118,7 @@ func (s *SubscriptionService) applyAccountWindows(ctx context.Context, sub *User
 		reset5h := *acc.SessionWindowEnd
 		start5h := reset5h.Add(-5 * time.Hour)
 		used := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start5h)
-		progress.FiveHour = buildWindowProgress(cap5h, used, start5h, reset5h, now)
+		progress.FiveHour = buildWindowProgress(subscriptionShare(cap5h, group.SubscriptionSlots), used, start5h, reset5h, now)
 		changed = true
 	}
 
@@ -1172,6 +1174,60 @@ func buildWindowProgress(limit, used float64, start, reset, now time.Time) *Usag
 		w.ResetsInSeconds = 0
 	}
 	return w
+}
+
+const subscriptionShareSafetyFactor = 0.85
+
+// subscriptionShare 单个订阅在某窗口的份额上限 = 号窗口容量 × 安全系数 / N（固定槽位）。
+// 展示(进度条 limit)与强制(撞顶 429)共用此口径，保证「卡片 100% = 真被切断点」。
+func subscriptionShare(capacityUSD float64, slots int) float64 {
+	if slots < 1 {
+		slots = 1
+	}
+	return capacityUSD * subscriptionShareSafetyFactor / float64(slots)
+}
+
+// shareOverLimit 判断某窗口用量是否已达/超过该订阅份额上限。capacity<=0 视为无法判定（不限制）。
+func shareOverLimit(usedUSD, capacityUSD float64, slots int) bool {
+	if capacityUSD <= 0 {
+		return false
+	}
+	return usedUSD >= subscriptionShare(capacityUSD, slots)
+}
+
+// CheckAccountShareLimits 订阅型 group 的份额强制（硬顶不可借）：本订阅在绑定号 5h/7d
+// 窗口内的用量达到/超过自己份额（号容量×安全系数/N）则拒（429）。
+// 仅订阅型 group 生效；号无反推容量时不限制（回退号自身反应式 429 保护）。
+func (s *SubscriptionService) CheckAccountShareLimits(ctx context.Context, sub *UserSubscription, group *Group) error {
+	if s == nil || s.accountRepo == nil || sub == nil || group == nil || !group.IsSubscriptionType() {
+		return nil
+	}
+	accounts, err := s.accountRepo.ListByGroup(ctx, group.ID)
+	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	acc := &accounts[0] // 订阅型 group 约定只绑 1 个号
+	slots := group.SubscriptionSlots
+
+	// 7d 份额
+	if cap7d := acc.getExtraFloat64("inferred_capacity_7d"); cap7d > 0 {
+		if reset7dUnix := acc.getExtraFloat64("passive_usage_7d_reset"); reset7dUnix > 0 {
+			start7d := time.Unix(int64(reset7dUnix), 0).Add(-7 * 24 * time.Hour)
+			used7d := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start7d)
+			if shareOverLimit(used7d, cap7d, slots) {
+				return ErrShare7dExceeded
+			}
+		}
+	}
+	// 5h 份额
+	if cap5h := acc.getExtraFloat64("inferred_capacity_5h"); cap5h > 0 && acc.SessionWindowEnd != nil {
+		start5h := acc.SessionWindowEnd.Add(-5 * time.Hour)
+		used5h := s.subscriptionWindowCost(ctx, sub.UserID, group.ID, start5h)
+		if shareOverLimit(used5h, cap5h, slots) {
+			return ErrShare5hExceeded
+		}
+	}
+	return nil
 }
 
 // GetUserSubscriptionsWithProgress 获取用户所有订阅及进度
