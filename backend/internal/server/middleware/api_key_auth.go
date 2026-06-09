@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// subscriptionRateLimitMessage 订阅额度/份额用尽时回给用户的中性限流文案（对齐上游 rate_limit_error，不泄露内部概念）。
+const subscriptionRateLimitMessage = "Rate limit exceeded, please retry later"
 
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
 func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
@@ -183,15 +187,15 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			if subscription != nil {
 				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				if validateErr != nil {
-					code := "SUBSCRIPTION_INVALID"
-					status := 403
+					// 额度用尽 → 对用户呈现为标准上游限流（rate_limit_error，按协议格式，不泄露内部概念）
 					if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
 						errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
 						errors.Is(validateErr, service.ErrMonthlyLimitExceeded) {
-						code = "USAGE_LIMIT_EXCEEDED"
-						status = 429
+						WriteGatewayRateLimitError(c, subscriptionRateLimitMessage)
+						return
 					}
-					AbortWithError(c, status, code, validateErr.Error())
+					// 订阅失效/过期/暂停 → 403（这是订阅状态问题，非限流）
+					AbortWithError(c, http.StatusForbidden, "SUBSCRIPTION_INVALID", validateErr.Error())
 					return
 				}
 
@@ -199,6 +203,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				if needsMaintenance {
 					maintenanceCopy := *subscription
 					subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+				}
+
+				// 份额强制（订阅型 group）：本订阅在绑定号 5h/7d 窗口内用量超份额则拒，
+				// 同样呈现为标准上游限流。仅订阅型 group 生效，非订阅 group（普通计费）零影响。
+				if shareErr := subscriptionService.CheckAccountShareLimits(c.Request.Context(), subscription, apiKey.Group); shareErr != nil {
+					WriteGatewayRateLimitError(c, subscriptionRateLimitMessage)
+					return
 				}
 			} else {
 				// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查

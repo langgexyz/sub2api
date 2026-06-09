@@ -45,6 +45,8 @@ type Group struct {
 	WeeklyLimitUsd *float64 `json:"weekly_limit_usd,omitempty"`
 	// MonthlyLimitUsd holds the value of the "monthly_limit_usd" field.
 	MonthlyLimitUsd *float64 `json:"monthly_limit_usd,omitempty"`
+	// 订阅型 group 的固定槽位数 N：绑定号的容量按 N 等分给各订阅，默认 1（单订阅独占）
+	SubscriptionSlots int `json:"subscription_slots,omitempty"`
 	// DefaultValidityDays holds the value of the "default_validity_days" field.
 	DefaultValidityDays int `json:"default_validity_days,omitempty"`
 	// 是否允许该分组使用图片生成能力
@@ -201,7 +203,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
+		case group.FieldID, group.FieldSubscriptionSlots, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
 			values[i] = new(sql.NullInt64)
 		case group.FieldName, group.FieldDescription, group.FieldStatus, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel:
 			values[i] = new(sql.NullString)
@@ -310,6 +312,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.MonthlyLimitUsd = new(float64)
 				*_m.MonthlyLimitUsd = value.Float64
+			}
+		case group.FieldSubscriptionSlots:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field subscription_slots", values[i])
+			} else if value.Valid {
+				_m.SubscriptionSlots = int(value.Int64)
 			}
 		case group.FieldDefaultValidityDays:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -580,6 +588,9 @@ func (_m *Group) String() string {
 		builder.WriteString("monthly_limit_usd=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("subscription_slots=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SubscriptionSlots))
 	builder.WriteString(", ")
 	builder.WriteString("default_validity_days=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DefaultValidityDays))

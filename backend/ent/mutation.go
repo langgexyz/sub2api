@@ -14872,6 +14872,8 @@ type GroupMutation struct {
 	addweekly_limit_usd                     *float64
 	monthly_limit_usd                       *float64
 	addmonthly_limit_usd                    *float64
+	subscription_slots                      *int
+	addsubscription_slots                   *int
 	default_validity_days                   *int
 	adddefault_validity_days                *int
 	allow_image_generation                  *bool
@@ -15640,6 +15642,62 @@ func (m *GroupMutation) ResetMonthlyLimitUsd() {
 	m.monthly_limit_usd = nil
 	m.addmonthly_limit_usd = nil
 	delete(m.clearedFields, group.FieldMonthlyLimitUsd)
+}
+
+// SetSubscriptionSlots sets the "subscription_slots" field.
+func (m *GroupMutation) SetSubscriptionSlots(i int) {
+	m.subscription_slots = &i
+	m.addsubscription_slots = nil
+}
+
+// SubscriptionSlots returns the value of the "subscription_slots" field in the mutation.
+func (m *GroupMutation) SubscriptionSlots() (r int, exists bool) {
+	v := m.subscription_slots
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSubscriptionSlots returns the old "subscription_slots" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldSubscriptionSlots(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSubscriptionSlots is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSubscriptionSlots requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSubscriptionSlots: %w", err)
+	}
+	return oldValue.SubscriptionSlots, nil
+}
+
+// AddSubscriptionSlots adds i to the "subscription_slots" field.
+func (m *GroupMutation) AddSubscriptionSlots(i int) {
+	if m.addsubscription_slots != nil {
+		*m.addsubscription_slots += i
+	} else {
+		m.addsubscription_slots = &i
+	}
+}
+
+// AddedSubscriptionSlots returns the value that was added to the "subscription_slots" field in this mutation.
+func (m *GroupMutation) AddedSubscriptionSlots() (r int, exists bool) {
+	v := m.addsubscription_slots
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSubscriptionSlots resets all changes to the "subscription_slots" field.
+func (m *GroupMutation) ResetSubscriptionSlots() {
+	m.subscription_slots = nil
+	m.addsubscription_slots = nil
 }
 
 // SetDefaultValidityDays sets the "default_validity_days" field.
@@ -17070,7 +17128,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 35)
+	fields := make([]string, 0, 36)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -17109,6 +17167,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.monthly_limit_usd != nil {
 		fields = append(fields, group.FieldMonthlyLimitUsd)
+	}
+	if m.subscription_slots != nil {
+		fields = append(fields, group.FieldSubscriptionSlots)
 	}
 	if m.default_validity_days != nil {
 		fields = append(fields, group.FieldDefaultValidityDays)
@@ -17210,6 +17271,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.WeeklyLimitUsd()
 	case group.FieldMonthlyLimitUsd:
 		return m.MonthlyLimitUsd()
+	case group.FieldSubscriptionSlots:
+		return m.SubscriptionSlots()
 	case group.FieldDefaultValidityDays:
 		return m.DefaultValidityDays()
 	case group.FieldAllowImageGeneration:
@@ -17289,6 +17352,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldWeeklyLimitUsd(ctx)
 	case group.FieldMonthlyLimitUsd:
 		return m.OldMonthlyLimitUsd(ctx)
+	case group.FieldSubscriptionSlots:
+		return m.OldSubscriptionSlots(ctx)
 	case group.FieldDefaultValidityDays:
 		return m.OldDefaultValidityDays(ctx)
 	case group.FieldAllowImageGeneration:
@@ -17432,6 +17497,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetMonthlyLimitUsd(v)
+		return nil
+	case group.FieldSubscriptionSlots:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSubscriptionSlots(v)
 		return nil
 	case group.FieldDefaultValidityDays:
 		v, ok := value.(int)
@@ -17607,6 +17679,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addmonthly_limit_usd != nil {
 		fields = append(fields, group.FieldMonthlyLimitUsd)
 	}
+	if m.addsubscription_slots != nil {
+		fields = append(fields, group.FieldSubscriptionSlots)
+	}
 	if m.adddefault_validity_days != nil {
 		fields = append(fields, group.FieldDefaultValidityDays)
 	}
@@ -17650,6 +17725,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedWeeklyLimitUsd()
 	case group.FieldMonthlyLimitUsd:
 		return m.AddedMonthlyLimitUsd()
+	case group.FieldSubscriptionSlots:
+		return m.AddedSubscriptionSlots()
 	case group.FieldDefaultValidityDays:
 		return m.AddedDefaultValidityDays()
 	case group.FieldImageRateMultiplier:
@@ -17704,6 +17781,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddMonthlyLimitUsd(v)
+		return nil
+	case group.FieldSubscriptionSlots:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSubscriptionSlots(v)
 		return nil
 	case group.FieldDefaultValidityDays:
 		v, ok := value.(int)
@@ -17902,6 +17986,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldMonthlyLimitUsd:
 		m.ResetMonthlyLimitUsd()
+		return nil
+	case group.FieldSubscriptionSlots:
+		m.ResetSubscriptionSlots()
 		return nil
 	case group.FieldDefaultValidityDays:
 		m.ResetDefaultValidityDays()

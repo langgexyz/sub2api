@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
@@ -99,6 +100,33 @@ func GoogleErrorWriter(c *gin.Context, status int, message string) {
 			"status":  googleapi.HTTPStatusToGoogleStatus(status),
 		},
 	})
+}
+
+// WriteGatewayRateLimitError 按请求协议输出与上游一致的 429 限流错误（rate_limit_error）。
+// 用于订阅额度/份额用尽——对用户呈现为标准的上游限流，不泄露"share/额度"等内部概念，
+// 客户端(如 Claude Code)据此正常退避重试。
+func WriteGatewayRateLimitError(c *gin.Context, message string) {
+	path := c.Request.URL.Path
+	switch {
+	case strings.Contains(path, "/v1beta") || strings.Contains(path, "/v1internal"):
+		// Gemini 形态
+		GoogleErrorWriter(c, http.StatusTooManyRequests, message)
+	case strings.Contains(path, "/chat/completions") ||
+		strings.Contains(path, "/responses") ||
+		strings.Contains(path, "/embeddings") ||
+		strings.Contains(path, "/images"):
+		// OpenAI 形态
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"error": gin.H{"type": "rate_limit_error", "message": message},
+		})
+	default:
+		// Anthropic 形态（/v1/messages 等，默认）
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"type":  "error",
+			"error": gin.H{"type": "rate_limit_error", "message": message},
+		})
+	}
+	c.Abort()
 }
 
 // RequireGroupAssignment 检查 API Key 是否已分配到分组，

@@ -24,6 +24,7 @@ type Group struct {
 	DailyLimitUSD       *float64
 	WeeklyLimitUSD      *float64
 	MonthlyLimitUSD     *float64
+	SubscriptionSlots   int // 固定槽位数 N：绑定号容量按 N 等分给各订阅，默认 1
 	DefaultValidityDays int
 
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）

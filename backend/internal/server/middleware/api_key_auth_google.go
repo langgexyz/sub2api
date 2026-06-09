@@ -88,13 +88,14 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 			if err != nil {
-				status := 403
+				// 额度用尽 → 标准上游限流（rate_limit_error，Gemini 形态，不泄露内部概念）
 				if errors.Is(err, service.ErrDailyLimitExceeded) ||
 					errors.Is(err, service.ErrWeeklyLimitExceeded) ||
 					errors.Is(err, service.ErrMonthlyLimitExceeded) {
-					status = 429
+					WriteGatewayRateLimitError(c, subscriptionRateLimitMessage)
+					return
 				}
-				abortWithGoogleError(c, status, err.Error())
+				abortWithGoogleError(c, 403, err.Error())
 				return
 			}
 
@@ -103,6 +104,12 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			if needsMaintenance {
 				maintenanceCopy := *subscription
 				subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+			}
+
+			// 份额强制（订阅型 group）：超份额同样呈现为标准上游限流
+			if shareErr := subscriptionService.CheckAccountShareLimits(c.Request.Context(), subscription, apiKey.Group); shareErr != nil {
+				WriteGatewayRateLimitError(c, subscriptionRateLimitMessage)
+				return
 			}
 		} else {
 			if apiKey.User.Balance <= 0 {

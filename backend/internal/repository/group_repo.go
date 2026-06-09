@@ -36,6 +36,14 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 	return &groupRepository{client: client, sql: sqlq}
 }
 
+// normalizeSubscriptionSlots 槽位数下限为 1（0/负 视为单订阅独占），与 ent Default(1) 一致。
+func normalizeSubscriptionSlots(n int) int {
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
 	builder := r.client.Group.Create().
 		SetName(groupIn.Name).
@@ -49,6 +57,7 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
+		SetSubscriptionSlots(normalizeSubscriptionSlots(groupIn.SubscriptionSlots)).
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
 		SetImageRateMultiplier(groupIn.ImageRateMultiplier).
@@ -127,6 +136,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetNillableDailyLimitUsd(groupIn.DailyLimitUSD).
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
+		// 注：Update 故意不写 subscription_slots——避免部分更新把已配 N 重置成默认（部分 PUT 清字段坑）。改 N 走专用路径/DB。
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
 		SetImageRateMultiplier(groupIn.ImageRateMultiplier).

@@ -173,7 +173,8 @@ func TestSimpleModeBypassesQuotaCheck(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusTooManyRequests, w.Code)
-		require.Contains(t, w.Body.String(), "USAGE_LIMIT_EXCEEDED")
+		// 额度用尽对用户呈现为标准上游限流（rate_limit_error），不再暴露 USAGE_LIMIT_EXCEEDED 内部码
+		require.Contains(t, w.Body.String(), "rate_limit_error")
 	})
 }
 
