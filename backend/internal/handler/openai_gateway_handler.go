@@ -314,6 +314,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "compact_not_supported", "No available OpenAI accounts support /responses/compact", streamStarted)
 					return
 				}
+				if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+					c.Header("Retry-After", strconv.Itoa(retryAfter))
+					h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", msg, streamStarted)
+					return
+				}
 				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
 				return
 			}
@@ -721,6 +726,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if len(failedAccountIDs) == 0 {
 				if err != nil {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+					if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+						c.Header("Retry-After", strconv.Itoa(retryAfter))
+						h.anthropicStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", msg, streamStarted)
+						return
+					}
 					h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable", streamStarted)
 					return
 				}
