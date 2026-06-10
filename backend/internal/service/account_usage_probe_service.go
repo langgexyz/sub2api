@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -77,11 +77,11 @@ func (s *AccountUsageProbeService) probeOnce() {
 
 	accounts, err := s.accountRepo.ListByPlatform(ctx, PlatformAnthropic)
 	if err != nil {
-		log.Printf("[AccountUsageProbe] list anthropic accounts failed: %v", err)
+		slog.Warn("account_usage_probe_list_failed", "component", "service.account_usage_probe", "error", err)
 		return
 	}
 
-	probed := 0
+	probed, failed := 0, 0
 	for i := range accounts {
 		acc := &accounts[i]
 		if !acc.CanGetUsage() {
@@ -89,12 +89,15 @@ func (s *AccountUsageProbeService) probeOnce() {
 		}
 		// 主动查询上游（force=true）；GetUsage 成功后 syncActiveToPassive 把新鲜 utilization 写回缓存
 		if _, err := s.usageService.GetUsage(ctx, acc.ID, true); err != nil {
-			log.Printf("[AccountUsageProbe] probe account %d (%s) failed: %v", acc.ID, acc.Name, err)
+			failed++
+			slog.Warn("account_usage_probe_account_failed",
+				"component", "service.account_usage_probe",
+				"account_id", acc.ID, "account_name", acc.Name, "error", err)
 			continue
 		}
 		probed++
 	}
-	if probed > 0 {
-		log.Printf("[AccountUsageProbe] refreshed upstream usage for %d account(s)", probed)
-	}
+	slog.Info("account_usage_probe_tick",
+		"component", "service.account_usage_probe",
+		"probed", probed, "failed", failed)
 }
