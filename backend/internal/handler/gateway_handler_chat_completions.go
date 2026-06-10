@@ -181,6 +181,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+					c.Header("Retry-After", strconv.Itoa(retryAfter))
+					h.chatCompletionsErrorResponse(c, http.StatusTooManyRequests, "rate_limit_error", msg)
+					return
+				}
 				h.chatCompletionsErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error())
 				return
 			}

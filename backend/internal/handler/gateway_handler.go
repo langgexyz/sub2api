@@ -334,6 +334,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.String("platform", platform),
 						zap.Error(err),
 					)
+					if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+						c.Header("Retry-After", strconv.Itoa(retryAfter))
+						h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", msg, streamStarted)
+						return
+					}
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
@@ -580,6 +585,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Bool("fallback_used", fallbackUsed),
 						zap.Error(err),
 					)
+					if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+						c.Header("Retry-After", strconv.Itoa(retryAfter))
+						h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", msg, streamStarted)
+						return
+					}
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
@@ -1730,6 +1740,11 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	if err != nil {
 		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+		if retryAfter, msg, ok := rateLimitedFromNoAccounts(err); ok {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", msg)
+			return
+		}
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
 		return
 	}

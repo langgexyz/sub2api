@@ -1792,6 +1792,11 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 }
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
+// allAccountsRateLimitedErr 见 computeAllAccountsRateLimited：分组内账号全部仅因上游限流冷却被挡时返回富错误。
+func (s *OpenAIGatewayService) allAccountsRateLimitedErr(ctx context.Context, groupID *int64) *AllAccountsRateLimitedError {
+	return computeAllAccountsRateLimited(ctx, s.accountRepo, groupID)
+}
+
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
 	return s.selectAccountWithLoadAwareness(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, sessionHash, requestedModel, excludedIDs, false, "")
 }
@@ -1845,6 +1850,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, err
 	}
 	if len(accounts) == 0 {
+		if rlErr := s.allAccountsRateLimitedErr(ctx, groupID); rlErr != nil {
+			return nil, rlErr
+		}
 		return nil, ErrNoAvailableAccounts
 	}
 
@@ -1925,6 +1933,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
+		if rlErr := s.allAccountsRateLimitedErr(ctx, groupID); rlErr != nil {
+			return nil, rlErr
+		}
 		return nil, ErrNoAvailableAccounts
 	}
 
@@ -2096,6 +2107,9 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 	if requireCompact && baseCandidateCount > 0 {
 		return nil, ErrNoAvailableCompactAccounts
+	}
+	if rlErr := s.allAccountsRateLimitedErr(ctx, groupID); rlErr != nil {
+		return nil, rlErr
 	}
 	return nil, ErrNoAvailableAccounts
 }
