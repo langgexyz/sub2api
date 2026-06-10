@@ -94,6 +94,16 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	CapacityInference       CapacityInferenceConfig       `mapstructure:"capacity_inference"`
+	AccountUsageProbe       AccountUsageProbeConfig       `mapstructure:"account_usage_probe"`
+}
+
+// AccountUsageProbeConfig 控制定时主动查询上游账号用量（= 自动执行「查询上游账号」），
+// 把实时 5h/7d utilization 刷进被动采样缓存，使无流量/低流量账号的容量反推与订阅份额也保持新鲜。
+type AccountUsageProbeConfig struct {
+	// 是否启用定时主动采样
+	Enabled bool `mapstructure:"enabled"`
+	// 采样间隔（分钟）；每轮对所有 Anthropic OAuth 账号各打一次上游 usage API
+	IntervalMinutes int `mapstructure:"interval_minutes"`
 }
 
 // CapacityInferenceConfig 控制订阅账号容量反推 + 自动定档（只读观测）。
@@ -1950,6 +1960,10 @@ func setDefaults() {
 	viper.SetDefault("capacity_inference.min_utilization", 0.05)     // 占比低于5%不反推（外推误差过大）
 	viper.SetDefault("capacity_inference.ewma_alpha", 0.3)           // EWMA 平滑系数
 	viper.SetDefault("capacity_inference.full_confidence_util", 0.5) // 占比达50%即满置信
+
+	// AccountUsageProbe（定时主动查询上游账号用量，刷新被动采样缓存）
+	viper.SetDefault("account_usage_probe.enabled", true)
+	viper.SetDefault("account_usage_probe.interval_minutes", 15) // 每15分钟主动采样一次（上游 usage API）
 
 	// Gemini OAuth - configure via environment variables or config file
 	// GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET
