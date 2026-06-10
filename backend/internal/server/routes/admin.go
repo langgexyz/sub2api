@@ -20,6 +20,9 @@ func RegisterAdminRoutes(
 		// 仪表盘
 		registerDashboardRoutes(admin, h)
 
+		// CC 会话历史分析
+		registerCCSessionRoutes(admin, h)
+
 		// 用户管理
 		registerUserManagementRoutes(admin, h)
 

@@ -112,6 +112,7 @@ func ProvideHandlers(
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
 	ccHubHandler *CCHubHandler,
+	ccSessionHandler *CCSessionHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -133,6 +134,7 @@ func ProvideHandlers(
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
 		CCHub:            ccHubHandler,
+		CCSession:        ccSessionHandler,
 	}
 }
 
@@ -155,6 +157,7 @@ var ProviderSet = wire.NewSet(
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
 	NewCCHubHandler,
+	NewCCSessionHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
