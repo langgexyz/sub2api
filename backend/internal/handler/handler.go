@@ -57,6 +57,7 @@ type Handlers struct {
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
 	CCHub            *CCHubHandler
+	CCSession        *CCSessionHandler
 }
 
 // BuildInfo contains build-time information
