@@ -436,6 +436,11 @@ func (s *APIKeyService) List(ctx context.Context, userID int64, params paginatio
 	return keys, pagination, nil
 }
 
+// CountByUserID 返回用户当前的密钥数（注册默认密钥名按用户级别自增时取此值 + 1）。
+func (s *APIKeyService) CountByUserID(ctx context.Context, userID int64) (int64, error) {
+	return s.apiKeyRepo.CountByUserID(ctx, userID)
+}
+
 func (s *APIKeyService) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	if len(apiKeyIDs) == 0 {
 		return []int64{}, nil
