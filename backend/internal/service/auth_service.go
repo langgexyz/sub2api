@@ -149,8 +149,17 @@ func (s *AuthService) createDefaultAPIKeyOnSignup(ctx context.Context, userID in
 		return
 	}
 	groupID := groups[0].ID
+	// 默认密钥名按用户级别自增：ccdirect.dev/1、/2 …，序号 = 该用户现有密钥数 + 1。
+	// 名字仅是用户后台展示标签（提示访问 base URL ccdirect.dev），不参与鉴权/路由；
+	// count 失败退化为 1，不阻断建钥。
+	seq := int64(1)
+	if n, err := s.apiKeyService.CountByUserID(ctx, userID); err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] default key: count keys for user %d failed (fallback seq=1): %v", userID, err)
+	} else {
+		seq = n + 1
+	}
 	if _, err := s.apiKeyService.Create(ctx, userID, CreateAPIKeyRequest{
-		Name:    "CCDirect1",
+		Name:    fmt.Sprintf("ccdirect.dev/%d", seq),
 		GroupID: &groupID,
 	}); err != nil {
 		logger.LegacyPrintf("service.auth", "[Auth] default key: create for user %d failed: %v", userID, err)
