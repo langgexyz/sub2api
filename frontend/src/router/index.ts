@@ -654,14 +654,11 @@ const routes: RouteRecordRaw[] = [
     }
   },
 
-  // ==================== 404 Not Found ====================
+  // ==================== 未匹配路由 → 直接重定向 dashboard（不展示独立 404 页）====================
+  // 未登录时由全局守卫从 /dashboard 再跳 /login（保留意图跳转）。
   {
     path: '/:pathMatch(.*)*',
-    name: 'NotFound',
-    component: () => import('@/views/NotFoundView.vue'),
-    meta: {
-      title: '404 Not Found'
-    }
+    redirect: '/dashboard'
   }
 ]
 
