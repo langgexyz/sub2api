@@ -5507,6 +5507,12 @@ export default {
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
         },
+        subscriptions: {
+          title: '我的订阅',
+          description: '控制用户端侧边栏的「我的订阅」入口。默认开启。',
+          enabled: '启用我的订阅',
+          enabledHint: '关闭后用户端侧边栏的「我的订阅」入口隐藏。',
+        },
         riskControl: {
           title: '风控中心',
           description: '启用内容审计菜单和全端点请求审核入口。默认关闭。',
