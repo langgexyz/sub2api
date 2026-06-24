@@ -759,6 +759,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
 		SettingKeyAvailableChannelsEnabled,
+		SettingKeySubscriptionsEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 	}
@@ -869,6 +870,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ChannelMonitorDefaultIntervalSeconds: parseChannelMonitorInterval(settings[SettingKeyChannelMonitorDefaultIntervalSeconds]),
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
+
+		SubscriptionsEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionsEnabled]),
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
@@ -1180,6 +1183,7 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
+	SubscriptionsEnabled                 bool `json:"subscriptions_enabled"`
 	AffiliateEnabled                     bool `json:"affiliate_enabled"`
 	RiskControlEnabled                   bool `json:"risk_control_enabled"`
 }
@@ -1244,6 +1248,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		SubscriptionsEnabled:                 settings.SubscriptionsEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 	}, nil
@@ -1913,6 +1918,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
+	updates[SettingKeySubscriptionsEnabled] = strconv.FormatBool(settings.SubscriptionsEnabled)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -2854,6 +2860,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
 
+		// My Subscriptions menu (default enabled; opt-out)
+		SettingKeySubscriptionsEnabled: "true",
+
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled: "false",
 
@@ -3360,6 +3369,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+
+	// My Subscriptions menu (default: enabled; opt-out)
+	result.SubscriptionsEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionsEnabled])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

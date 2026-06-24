@@ -5347,6 +5347,12 @@ export default {
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
         },
+        subscriptions: {
+          title: 'My Subscriptions',
+          description: 'Controls the "My Subscriptions" entry in the user sidebar. Enabled by default.',
+          enabled: 'Enable My Subscriptions',
+          enabledHint: 'When off, the "My Subscriptions" entry in the user sidebar is hidden.',
+        },
         riskControl: {
           title: 'Risk Control',
           description: 'Enable the content moderation menu and gateway audit entry point. Disabled by default.',

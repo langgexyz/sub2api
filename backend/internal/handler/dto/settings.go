@@ -241,6 +241,9 @@ type SystemSettings struct {
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
+	// My Subscriptions menu toggle (user-facing)
+	SubscriptionsEnabled bool `json:"subscriptions_enabled"`
+
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
@@ -269,7 +272,7 @@ type PublicSettings struct {
 	InvitationCodeEnabled            bool                     `json:"invitation_code_enabled"`
 	RegistrationRequireAffiliateCode bool                     `json:"registration_require_affiliate_code"` // 门票式裂变：注册必须填邀请码
 	DisableEmailLogin                bool                     `json:"disable_email_login"`                 // 关闭邮箱登录/注册（只走 OAuth）
-	TotpEnabled                      bool                     `json:"totp_enabled"` // TOTP 双因素认证
+	TotpEnabled                      bool                     `json:"totp_enabled"`                        // TOTP 双因素认证
 	LoginAgreementEnabled            bool                     `json:"login_agreement_enabled"`
 	LoginAgreementMode               string                   `json:"login_agreement_mode"`
 	LoginAgreementUpdatedAt          string                   `json:"login_agreement_updated_at"`
@@ -314,6 +317,9 @@ type PublicSettings struct {
 	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+
+	// My Subscriptions menu toggle (user-facing)
+	SubscriptionsEnabled bool `json:"subscriptions_enabled"`
 
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 

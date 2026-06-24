@@ -367,6 +367,10 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
+	// SettingKeySubscriptionsEnabled is a DB-backed soft switch for the "My Subscriptions"
+	// user-facing menu. When false the sidebar entry is hidden. Defaults to true (opt-out feature).
+	SettingKeySubscriptionsEnabled = "subscriptions_enabled"
+
 	// =========================
 	// Overload Cooldown (529)
 	// =========================
