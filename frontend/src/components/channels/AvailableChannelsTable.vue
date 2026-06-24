@@ -43,7 +43,7 @@
           <td
             v-if="secIdx === 0"
             :rowspan="channel.platforms.length"
-            class="px-4 py-3 text-center align-middle font-medium text-gray-900 dark:text-white"
+            class="px-4 py-3 text-center align-top font-medium text-gray-900 dark:text-white"
           >
             {{ channel.name }}
           </td>
@@ -52,7 +52,7 @@
           <td
             v-if="secIdx === 0"
             :rowspan="channel.platforms.length"
-            class="px-4 py-3 align-middle text-xs text-gray-500 dark:text-gray-400"
+            class="px-4 py-3 align-top text-xs text-gray-500 dark:text-gray-400"
           >
             <template v-if="channel.description">{{ channel.description }}</template>
             <span v-else class="text-gray-400">-</span>
