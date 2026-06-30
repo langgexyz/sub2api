@@ -3297,6 +3297,19 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		return nil, err
 	}
 
+	// 非流式保活：客户端要非流式时，内部改用流式调上游（拿到 SSE 后聚合回非流式 JSON），
+	// 等待上游生成期间向客户端周期性写空白保活字节，避免慢推理期间客户端空闲读超时主动 abort。
+	// 仅在 flag 开启、客户端非流式、且非图片生成意图时启用；上游错误仍在提交响应前正常返回状态码。
+	forceUpstreamStream := s.cfg != nil && s.cfg.Gateway.OpenAINonStreamKeepalive && !reqStream &&
+		!IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body)
+	if forceUpstreamStream {
+		if nb, setErr := sjson.SetBytes(body, "stream", true); setErr == nil {
+			body = nb
+		} else {
+			forceUpstreamStream = false
+		}
+	}
+
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
 	releaseUpstreamCtx()
@@ -3360,6 +3373,14 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 		usage = result.usage
 		firstTokenMs = result.firstTokenMs
+		imageCount = result.imageCount
+		imageOutputSizes = result.imageOutputSizes
+	} else if forceUpstreamStream {
+		result, err := s.handleNonStreamKeepalivePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
+		if err != nil {
+			return nil, err
+		}
+		usage = result.usage
 		imageCount = result.imageCount
 		imageOutputSizes = result.imageOutputSizes
 	} else {
@@ -4044,6 +4065,89 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
 		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
 	}, nil
+}
+
+// openAINonStreamKeepaliveInterval 非流式保活向客户端写空白字节的间隔。
+// 用 var 而非 const 以便测试覆盖保活时序（生产值固定 10s）。
+var openAINonStreamKeepaliveInterval = 10 * time.Second
+
+// handleNonStreamKeepalivePassthrough 处理「客户端要非流式、内部强制流式调上游」的响应：
+// 后台 goroutine 读取上游 SSE body，等待期间每隔 openAINonStreamKeepaliveInterval 向客户端写入
+// 一个空白字节并 flush，保持连接活跃，避免慢推理(分钟级)期间客户端因空闲读超时主动 abort；
+// 读完后复用 handlePassthroughSSEToJSON 把 SSE 聚合回非流式 JSON。JSON 解析器忽略前导空白，
+// 因此保活空白字节不影响客户端解析最终响应。
+//
+// 注意：此分支仅在 Do 返回 2xx 后进入（上游错误已在调用方按状态码正常返回），
+// 因此提交 200 + 发送保活字节是安全的，不会丢失错误状态码语义。
+func (s *OpenAIGatewayService) handleNonStreamKeepalivePassthrough(
+	ctx context.Context,
+	resp *http.Response,
+	c *gin.Context,
+	originalModel string,
+	mappedModel string,
+) (*openaiNonStreamingResultPassthrough, error) {
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		// 无法 flush（理论上不会发生）：退回普通非流式处理，不发保活。
+		return s.handleNonStreamingResponsePassthrough(ctx, resp, c, originalModel, mappedModel)
+	}
+
+	// 预先设置响应头（提交状态码前）。最终正文是 JSON，沿用 application/json；
+	// 关闭中间层缓冲确保保活字节即时到达客户端。
+	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
+	type readResult struct {
+		body []byte
+		err  error
+	}
+	done := make(chan readResult, 1)
+	go func() {
+		b, e := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
+		done <- readResult{body: b, err: e}
+	}()
+
+	ticker := time.NewTicker(openAINonStreamKeepaliveInterval)
+	defer ticker.Stop()
+
+	committed := false
+	var body []byte
+	var readErr error
+readLoop:
+	for {
+		select {
+		case r := <-done:
+			body, readErr = r.body, r.err
+			break readLoop
+		case <-ticker.C:
+			if !committed {
+				c.Writer.WriteHeader(http.StatusOK)
+				committed = true
+			}
+			if _, werr := c.Writer.Write([]byte(" ")); werr != nil {
+				// 客户端已断开：继续等待上游读取完成以记录用量（与流式断开行为一致）。
+				r := <-done
+				body, readErr = r.body, r.err
+				break readLoop
+			}
+			flusher.Flush()
+		case <-ctx.Done():
+			// 请求被取消：drain 上游读取以记录用量后返回。
+			r := <-done
+			body, readErr = r.body, r.err
+			break readLoop
+		}
+	}
+
+	if readErr != nil && !committed {
+		// 尚未向客户端提交任何字节，交由上层错误兜底正常返回（保留状态码语义）。
+		return nil, readErr
+	}
+
+	// 复用既有 SSE -> JSON 聚合。若已发过保活字节(committed)，handlePassthroughSSEToJSON
+	// 内部 c.Data 的 WriteHeader 为 no-op，最终 JSON 追加在前导空白之后，客户端解析忽略空白。
+	return s.handlePassthroughSSEToJSON(resp, c, body, originalModel, mappedModel)
 }
 
 // handlePassthroughSSEToJSON converts an SSE response body into a JSON
