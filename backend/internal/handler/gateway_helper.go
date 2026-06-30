@@ -157,6 +157,8 @@ type ConcurrencyHelper struct {
 	concurrencyService *service.ConcurrencyService
 	pingFormat         SSEPingFormat
 	pingInterval       time.Duration
+	// waitTimeout 等待并发槽位的最大时间；<=0 时回退到内置默认 maxConcurrencyWait。
+	waitTimeout time.Duration
 }
 
 // NewConcurrencyHelper creates a new ConcurrencyHelper
@@ -169,6 +171,19 @@ func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFo
 		pingFormat:         pingFormat,
 		pingInterval:       pingInterval,
 	}
+}
+
+// SetWaitTimeout 配置等待并发槽位的最大时间。传入 <=0 表示沿用内置默认 maxConcurrencyWait。
+func (h *ConcurrencyHelper) SetWaitTimeout(d time.Duration) {
+	h.waitTimeout = d
+}
+
+// slotWaitTimeout 返回当前生效的并发槽等待上限。
+func (h *ConcurrencyHelper) slotWaitTimeout() time.Duration {
+	if h.waitTimeout > 0 {
+		return h.waitTimeout
+	}
+	return maxConcurrencyWait
 }
 
 // wrapReleaseOnDone ensures release runs at most once and still triggers on context cancellation.
@@ -284,7 +299,7 @@ func (h *ConcurrencyHelper) AcquireAccountSlotWithWait(c *gin.Context, accountID
 // waitForSlotWithPing waits for a concurrency slot, sending ping events for streaming requests.
 // streamStarted pointer is updated when streaming begins (for proper error handling by caller).
 func (h *ConcurrencyHelper) waitForSlotWithPing(c *gin.Context, slotType string, id int64, maxConcurrency int, isStream bool, streamStarted *bool) (func(), error) {
-	return h.waitForSlotWithPingTimeout(c, slotType, id, maxConcurrency, maxConcurrencyWait, isStream, streamStarted, false)
+	return h.waitForSlotWithPingTimeout(c, slotType, id, maxConcurrency, h.slotWaitTimeout(), isStream, streamStarted, false)
 }
 
 // waitForSlotWithPingTimeout waits for a concurrency slot with a custom timeout.

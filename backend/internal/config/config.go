@@ -1062,6 +1062,10 @@ type GatewaySchedulingConfig struct {
 	FallbackWaitTimeout time.Duration `mapstructure:"fallback_wait_timeout"`
 	FallbackMaxWaiting  int           `mapstructure:"fallback_max_waiting"`
 
+	// 用户/账号并发槽等待上限：抢不到并发槽时排队等待的最长时间，超时才返回 429。
+	// <=0 时沿用内置默认 30s（maxConcurrencyWait）。
+	ConcurrencyWaitTimeout time.Duration `mapstructure:"concurrency_wait_timeout"`
+
 	// 兜底层账户选择策略: "last_used"(按最后使用时间排序，默认) 或 "random"(随机)
 	FallbackSelectionMode string `mapstructure:"fallback_selection_mode"`
 
@@ -1903,6 +1907,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
+	viper.SetDefault("gateway.scheduling.concurrency_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
 	viper.SetDefault("gateway.scheduling.load_batch_enabled", true)
 	viper.SetDefault("gateway.scheduling.load_batch_cache_ttl_ms", 200)
@@ -2738,6 +2743,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.Scheduling.FallbackMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.fallback_max_waiting must be positive")
+	}
+	if c.Gateway.Scheduling.ConcurrencyWaitTimeout < 0 {
+		return fmt.Errorf("gateway.scheduling.concurrency_wait_timeout must be non-negative")
 	}
 	if c.Gateway.Scheduling.LoadBatchCacheTTLMS < 0 {
 		return fmt.Errorf("gateway.scheduling.load_batch_cache_ttl_ms must be non-negative")
