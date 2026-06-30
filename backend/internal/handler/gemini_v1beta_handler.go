@@ -204,6 +204,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	// For Gemini native API, do not send Claude-style ping frames.
 	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
+	geminiConcurrency.SetWaitTimeout(h.concurrencyHelper.waitTimeout)
 
 	// 0) wait queue check
 	maxWait := service.CalculateMaxWait(authSubject.Concurrency)
