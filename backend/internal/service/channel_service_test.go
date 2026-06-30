@@ -657,6 +657,32 @@ func TestGetChannelModelPricing_ExactMatch(t *testing.T) {
 	require.InDelta(t, 15e-6, *result.InputPrice, 1e-12)
 }
 
+// TestGetChannelModelPricing_DotDashSeparatorNormalized 回归测试：定价配置用点号
+// （claude-opus-4.8），上游请求用连字符（claude-opus-4-8），两者必须匹配。
+// 历史 bug：精确匹配区分点/连字符 → 渠道定价整体哑火 → Claude 计费全部漏走 LiteLLM。
+func TestGetChannelModelPricing_DotDashSeparatorNormalized(t *testing.T) {
+	ch := Channel{
+		ID:       1,
+		Status:   StatusActive,
+		GroupIDs: []int64{10},
+		ModelPricing: []ChannelModelPricing{
+			{ID: 101, Platform: "anthropic", Models: []string{"claude-opus-4.8"}, InputPrice: testPtrFloat64(5e-6)},
+		},
+	}
+	repo := makeStandardRepo(ch, map[int64]string{10: "anthropic"})
+	svc := newTestChannelService(repo)
+
+	// 请求用连字符，配置用点号 → 必须命中
+	result := svc.GetChannelModelPricing(context.Background(), 10, "claude-opus-4-8")
+	require.NotNil(t, result, "dash request must match dot config")
+	require.Equal(t, int64(101), result.ID)
+
+	// 反向：请求用点号也应命中
+	result = svc.GetChannelModelPricing(context.Background(), 10, "claude-opus-4.8")
+	require.NotNil(t, result, "dot request must match dot config")
+	require.Equal(t, int64(101), result.ID)
+}
+
 func TestGetChannelModelPricing_CaseInsensitive(t *testing.T) {
 	ch := Channel{
 		ID:       1,
