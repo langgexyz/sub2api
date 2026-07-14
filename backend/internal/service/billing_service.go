@@ -247,6 +247,28 @@ func (s *BillingService) initFallbackPricing() {
 	// Claude 4.8 Opus (沿用 4.5 起的 $5/$25 定价)
 	s.fallbackPrices["claude-opus-4.8"] = s.fallbackPrices["claude-opus-4.7"]
 
+	// Claude 4.5 Haiku（$1/$5，与 3.5 Haiku 同价但独立键，便于未来单独调价）
+	s.fallbackPrices["claude-haiku-4.5"] = s.fallbackPrices["claude-3-5-haiku"]
+
+	// Claude 5 Sonnet（$2/$10）
+	s.fallbackPrices["claude-sonnet-5"] = &ModelPricing{
+		InputPricePerToken:         2e-6,   // $2 per MTok
+		OutputPricePerToken:        10e-6,  // $10 per MTok
+		CacheCreationPricePerToken: 2.5e-6, // $2.50 per MTok
+		CacheReadPricePerToken:     0.2e-6, // $0.20 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+
+	// Claude 5 Fable / Mythos（Mythos 级，高于 Opus：$10/$50）
+	s.fallbackPrices["claude-fable-5"] = &ModelPricing{
+		InputPricePerToken:         10e-6,   // $10 per MTok
+		OutputPricePerToken:        50e-6,   // $50 per MTok
+		CacheCreationPricePerToken: 12.5e-6, // $12.50 per MTok
+		CacheReadPricePerToken:     1e-6,    // $1.00 per MTok
+		SupportsCacheBreakdown:     false,
+	}
+	s.fallbackPrices["claude-mythos-5"] = s.fallbackPrices["claude-fable-5"]
+
 	// Gemini 3.1 Pro
 	s.fallbackPrices["gemini-3.1-pro"] = &ModelPricing{
 		InputPricePerToken:         2e-6,   // $2 per MTok
@@ -270,8 +292,36 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:     openAIGPT54LongContextInputMultiplier,
 		LongContextOutputMultiplier:    openAIGPT54LongContextOutputMultiplier,
 	}
-	// GPT-5.5 暂无独立定价，回退到 GPT-5.4
-	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
+	// OpenAI GPT-5.6（官方 $5/$30，priority 双倍；272k 以上走长上下文倍率）
+	s.fallbackPrices["gpt-5.6"] = &ModelPricing{
+		InputPricePerToken:             5e-6,    // $5 per MTok
+		InputPricePerTokenPriority:     10e-6,   // $10 per MTok
+		OutputPricePerToken:            30e-6,   // $30 per MTok
+		OutputPricePerTokenPriority:    60e-6,   // $60 per MTok
+		CacheCreationPricePerToken:     6.25e-6, // $6.25 per MTok
+		CacheReadPricePerToken:         0.5e-6,  // $0.50 per MTok
+		CacheReadPricePerTokenPriority: 1e-6,    // $1 per MTok
+		SupportsCacheBreakdown:         false,
+		LongContextInputThreshold:      openAIGPT54LongContextInputThreshold,
+		LongContextInputMultiplier:     openAIGPT54LongContextInputMultiplier,
+		LongContextOutputMultiplier:    openAIGPT54LongContextOutputMultiplier,
+	}
+	// GPT-5.5 官方与 GPT-5.6 同价（$5/$30），不再沿用 GPT-5.4 的 $2.5/$15 旧价
+	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.6"]
+	// GPT-5.6 变体（luna/sol/terra 为三档不同定价，不可归并到主模型）
+	s.fallbackPrices["gpt-5.6-luna"] = &ModelPricing{
+		InputPricePerToken:     1e-6,   // $1 per MTok
+		OutputPricePerToken:    6e-6,   // $6 per MTok
+		CacheReadPricePerToken: 0.1e-6, // $0.10 per MTok
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["gpt-5.6-sol"] = s.fallbackPrices["gpt-5.6"]
+	s.fallbackPrices["gpt-5.6-terra"] = &ModelPricing{
+		InputPricePerToken:     2.5e-6,  // $2.5 per MTok
+		OutputPricePerToken:    15e-6,   // $15 per MTok
+		CacheReadPricePerToken: 0.25e-6, // $0.25 per MTok
+		SupportsCacheBreakdown: false,
+	}
 
 	s.fallbackPrices["gpt-5.4-mini"] = &ModelPricing{
 		InputPricePerToken:     7.5e-7,
@@ -336,16 +386,33 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		}
 	}
 	if strings.Contains(modelLower, "sonnet") {
-		if strings.Contains(modelLower, "4") && !strings.Contains(modelLower, "3") {
+		switch {
+		case strings.Contains(modelLower, "3-5-sonnet") || strings.Contains(modelLower, "3.5-sonnet") ||
+			strings.Contains(modelLower, "3-7-sonnet") || strings.Contains(modelLower, "3.7-sonnet") ||
+			strings.Contains(modelLower, "3-sonnet") || strings.Contains(modelLower, "sonnet-3"):
+			return s.fallbackPrices["claude-3-5-sonnet"]
+		case strings.Contains(modelLower, "sonnet-4") || strings.Contains(modelLower, "4-sonnet"):
 			return s.fallbackPrices["claude-sonnet-4"]
+		default:
+			// Sonnet 5 及未来型号按最新 $2/$10 兜底
+			return s.fallbackPrices["claude-sonnet-5"]
 		}
-		return s.fallbackPrices["claude-3-5-sonnet"]
 	}
 	if strings.Contains(modelLower, "haiku") {
-		if strings.Contains(modelLower, "3-5") || strings.Contains(modelLower, "3.5") {
+		switch {
+		case strings.Contains(modelLower, "3-5-haiku") || strings.Contains(modelLower, "3.5-haiku") ||
+			strings.Contains(modelLower, "haiku-3-5") || strings.Contains(modelLower, "haiku-3.5"):
 			return s.fallbackPrices["claude-3-5-haiku"]
+		case strings.Contains(modelLower, "3-haiku") || strings.Contains(modelLower, "haiku-3"):
+			return s.fallbackPrices["claude-3-haiku"]
+		default:
+			// Haiku 4.5 及未来型号按最新 $1/$5 兜底
+			return s.fallbackPrices["claude-haiku-4.5"]
 		}
-		return s.fallbackPrices["claude-3-haiku"]
+	}
+	// Claude 5 家族 Mythos 级（Fable/Mythos，高于 Opus）
+	if strings.Contains(modelLower, "fable") || strings.Contains(modelLower, "mythos") {
+		return s.fallbackPrices["claude-fable-5"]
 	}
 	// Claude 未知型号统一回退到 Sonnet，避免计费中断。
 	if strings.Contains(modelLower, "claude") {
@@ -358,6 +425,14 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// OpenAI 仅匹配已知 GPT-5/Codex 族，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeKnownOpenAICodexModel(modelLower); normalized != "" {
 		switch normalized {
+		case "gpt-5.6":
+			return s.fallbackPrices["gpt-5.6"]
+		case "gpt-5.6-luna":
+			return s.fallbackPrices["gpt-5.6-luna"]
+		case "gpt-5.6-sol":
+			return s.fallbackPrices["gpt-5.6-sol"]
+		case "gpt-5.6-terra":
+			return s.fallbackPrices["gpt-5.6-terra"]
 		case "gpt-5.5":
 			return s.fallbackPrices["gpt-5.5"]
 		case "gpt-5.4-mini":
@@ -718,7 +793,7 @@ func isOpenAIGPT54Model(model string) bool {
 	// normalizeCodexModel 的默认兜底把非 OpenAI 模型（claude-*、gemini-*、gpt-4o）
 	// 误识别为 gpt-5.4。
 	normalized := normalizeKnownOpenAICodexModel(model)
-	return normalized == "gpt-5.4" || normalized == "gpt-5.5"
+	return normalized == "gpt-5.4" || normalized == "gpt-5.5" || normalized == "gpt-5.6"
 }
 
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用
