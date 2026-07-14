@@ -181,6 +181,8 @@ const defaultClientTab = computed(() => {
   switch (props.platform) {
     case 'openai':
       return 'codex'
+    case 'grok':
+      return 'grok'
     case 'gemini':
       return 'gemini'
     case 'antigravity':
@@ -288,6 +290,11 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'grok':
+      return [
+        { id: 'grok', label: t('keys.useKeyModal.cliTabs.grokCli'), icon: TerminalIcon },
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -313,7 +320,7 @@ const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
-  if (activeClientTab.value === 'codex' || activeClientTab.value === 'codex-ws') {
+  if (activeClientTab.value === 'codex' || activeClientTab.value === 'codex-ws' || activeClientTab.value === 'grok') {
     return openaiTabs
   }
   return shellTabs
@@ -330,6 +337,8 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
+    case 'grok':
+      return t('keys.useKeyModal.grok.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -350,6 +359,10 @@ const platformNote = computed(() => {
       return activeClientTab.value === 'claude'
         ? t('keys.useKeyModal.antigravity.claudeNote')
         : t('keys.useKeyModal.antigravity.geminiNote')
+    case 'grok':
+      return activeTab.value === 'windows'
+        ? t('keys.useKeyModal.grok.noteWindows')
+        : t('keys.useKeyModal.grok.note')
     default:
       return t('keys.useKeyModal.note')
   }
@@ -407,6 +420,8 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
+      case 'grok':
+        return [generateOpenCodeConfig('grok', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -428,6 +443,8 @@ const currentFiles = computed((): FileConfig[] => {
         return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
       }
       return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+    case 'grok':
+      return generateGrokFiles(apiBase, apiKey)
     default:
       return generateAnthropicFiles(baseUrl, apiKey)
   }
@@ -442,19 +459,22 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
       path = 'Terminal'
       content = `export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
-export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+export CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     case 'cmd':
       path = 'Command Prompt'
       content = `set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
-set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+set CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     case 'powershell':
       path = 'PowerShell'
       content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
-$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
+$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+$env:CLAUDE_CODE_ATTRIBUTION_HEADER=0`
       break
     default:
       path = 'Terminal'
@@ -565,6 +585,30 @@ goals = true`
   ]
 }
 
+function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const isWindows = activeTab.value === 'windows'
+  const configDir = isWindows ? '%userprofile%\\.grok' : '~/.grok'
+  const configContent = `[models]
+default = "sub2api-grok"
+web_search = "sub2api-grok"
+
+[model."sub2api-grok"]
+model = "grok-4.5"
+base_url = "${baseUrl}"
+name = "Grok 4.5 via Sub2API"
+description = "Grok 4.5 through a Sub2API Grok group"
+api_key = "${apiKey}"
+api_backend = "responses"
+context_window = 1000000
+supports_backend_search = true`
+
+  return [{
+    path: `${configDir}/config.toml`,
+    content: configContent,
+    hint: t('keys.useKeyModal.grok.configTomlHint')
+  }]
+}
+
 function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
@@ -633,6 +677,74 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         xhigh: {}
       }
     },
+    'gpt-5.6': {
+      name: 'GPT-5.6 (Sol)',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    },
+    'gpt-5.6-sol': {
+      name: 'GPT-5.6 Sol',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    },
+    'gpt-5.6-terra': {
+      name: 'GPT-5.6 Terra',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    },
+    'gpt-5.6-luna': {
+      name: 'GPT-5.6 Luna',
+      limit: {
+        context: 1050000,
+        output: 128000
+      },
+      options: {
+        store: false
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+        max: {}
+      }
+    },
     'gpt-5.5': {
       name: 'GPT-5.5',
       limit: {
@@ -686,22 +798,6 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       limit: {
         context: 128000,
         output: 32000
-      },
-      options: {
-        store: false
-      },
-      variants: {
-        low: {},
-        medium: {},
-        high: {},
-        xhigh: {}
-      }
-    },
-    'gpt-5.3-codex': {
-      name: 'GPT-5.3 Codex',
-      limit: {
-        context: 400000,
-        output: 128000
       },
       options: {
         store: false
@@ -966,6 +1062,22 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
   const claudeModels = {
+    'claude-fable-5': {
+      name: 'Claude Fable 5',
+      limit: {
+        context: 1048576,
+        output: 128000
+      },
+      modalities: {
+        input: ['text', 'image', 'pdf'],
+        output: ['text']
+      },
+      options: {
+        thinking: {
+          type: 'adaptive'
+        }
+      }
+    },
     'claude-opus-4-6-thinking': {
       name: 'Claude 4.6 Opus (Thinking)',
       limit: {
@@ -1001,6 +1113,24 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       }
     }
   }
+  const grokModels = {
+    'grok-4.5': {
+      name: 'Grok 4.5',
+      limit: { context: 1000000, output: 128000 }
+    },
+    'grok-4.3': {
+      name: 'Grok 4.3',
+      limit: { context: 1000000, output: 128000 }
+    },
+    'grok-build-0.1': {
+      name: 'Grok Build 0.1',
+      limit: { context: 256000, output: 128000 }
+    },
+    'grok-composer-2.5-fast': {
+      name: 'Grok Composer 2.5 Fast',
+      limit: { context: 500000, output: 128000 }
+    }
+  }
 
   if (platform === 'gemini') {
     provider[platform].npm = '@ai-sdk/google'
@@ -1017,6 +1147,10 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].models = antigravityGeminiModels
   } else if (platform === 'openai') {
     provider[platform].models = openaiModels
+  } else if (platform === 'grok') {
+    provider[platform].npm = '@ai-sdk/openai'
+    provider[platform].name = 'Grok via Sub2API'
+    provider[platform].models = grokModels
   }
 
   const agent =

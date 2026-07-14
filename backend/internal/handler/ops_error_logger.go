@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -70,6 +73,49 @@ const (
 	opsErrorLogMaxQueueSize       = 8192
 	opsErrorLogBatchSize          = 32
 )
+
+// looksLikeSystemKey 粗筛"形似本系统 key"的输入:长度 16-128 且仅含 [a-zA-Z0-9_-]。
+// 不用前缀匹配(APIKeyPrefix 可配置)。用于反查审计表前挡掉随机扫描的乱码输入。
+func looksLikeSystemKey(key string) bool {
+	if len(key) < 16 || len(key) > 128 {
+		return false
+	}
+	for _, c := range key {
+		allowed := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-'
+		if !allowed {
+			return false
+		}
+	}
+	return true
+}
+
+// keyPrefix 返回脱敏前缀(前 n 个字符);不足 n 则原样返回。
+func keyPrefix(key string, n int) string {
+	if len(key) <= n {
+		return key
+	}
+	return key[:n]
+}
+
+// extractAttemptedKey 按认证中间件同样的顺序从请求头提取提交的 key 明文。
+// 与 api_key_auth.go:43-59 一致:Authorization 仅取 Bearer scheme,非 Bearer 则忽略并继续 x-api-key → x-goog-api-key。
+func extractAttemptedKey(c *gin.Context) string {
+	if h := c.GetHeader("Authorization"); h != "" {
+		parts := strings.SplitN(h, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			return strings.TrimSpace(parts[1])
+		}
+		// 非 Bearer:与中间件一致,忽略 Authorization,继续尝试其它 header(不在此 return)。
+	}
+	if k := c.GetHeader("x-api-key"); k != "" {
+		return strings.TrimSpace(k)
+	}
+	if k := c.GetHeader("x-goog-api-key"); k != "" {
+		return strings.TrimSpace(k)
+	}
+	return ""
+}
 
 type opsErrorLogJob struct {
 	ops   *service.OpsService
@@ -455,7 +501,82 @@ func releaseOpsCaptureWriter(w *opsCaptureWriter) {
 	opsCaptureWriterPool.Put(w)
 }
 
+func (w *opsCaptureWriter) Status() int {
+	if w.ResponseWriter == nil {
+		return 0
+	}
+	return w.ResponseWriter.Status()
+}
+
+func (w *opsCaptureWriter) Size() int {
+	if w.ResponseWriter == nil {
+		return -1
+	}
+	return w.ResponseWriter.Size()
+}
+
+func (w *opsCaptureWriter) Written() bool {
+	if w.ResponseWriter == nil {
+		return false
+	}
+	return w.ResponseWriter.Written()
+}
+
+func (w *opsCaptureWriter) Header() http.Header {
+	if w.ResponseWriter == nil {
+		return http.Header{}
+	}
+	return w.ResponseWriter.Header()
+}
+
+func (w *opsCaptureWriter) WriteHeader(code int) {
+	if w.ResponseWriter == nil {
+		return
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *opsCaptureWriter) WriteHeaderNow() {
+	if w.ResponseWriter == nil {
+		return
+	}
+	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *opsCaptureWriter) Flush() {
+	if w.ResponseWriter == nil {
+		return
+	}
+	w.ResponseWriter.Flush()
+}
+
+func (w *opsCaptureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if w.ResponseWriter == nil {
+		return nil, nil, errors.New("response writer released")
+	}
+	return w.ResponseWriter.Hijack()
+}
+
+func (w *opsCaptureWriter) CloseNotify() <-chan bool {
+	if w.ResponseWriter == nil {
+		ch := make(chan bool)
+		close(ch)
+		return ch
+	}
+	return w.ResponseWriter.CloseNotify()
+}
+
+func (w *opsCaptureWriter) Pusher() http.Pusher {
+	if w.ResponseWriter == nil {
+		return nil
+	}
+	return w.ResponseWriter.Pusher()
+}
+
 func (w *opsCaptureWriter) Write(b []byte) (int, error) {
+	if w.ResponseWriter == nil {
+		return 0, nil
+	}
 	if w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
 		remaining := w.limit - w.buf.Len()
 		if len(b) > remaining {
@@ -468,6 +589,9 @@ func (w *opsCaptureWriter) Write(b []byte) (int, error) {
 }
 
 func (w *opsCaptureWriter) WriteString(s string) (int, error) {
+	if w.ResponseWriter == nil {
+		return 0, nil
+	}
 	if w.Status() >= 400 && w.limit > 0 && w.buf.Len() < w.limit {
 		remaining := w.limit - w.buf.Len()
 		if len(s) > remaining {
@@ -509,6 +633,10 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			return
 		}
 
+		if shouldSkipOpsErrorLogForCyber(c) {
+			return
+		}
+
 		status := c.Writer.Status()
 		if status < 400 {
 			// Even when the client request succeeds, we still want to persist upstream error attempts
@@ -546,10 +674,14 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				}
 			}
 			if !hasUpstreamContext {
+				// 没有上游错误上下文，但网关可能在已固化的 200 流上就地补发了 SSE 错误帧
+				// （如 ping 等待后并发超限、Wait 后二次计费校验失败）。这类失败若不在此补记，
+				// 会因 wire 状态码为 200 而在错误看板里彻底隐形。
+				logOpsStreamError(c, ops, status)
 				return
 			}
 
-			apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+			apiKey := getOpsAPIKey(c)
 			clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
 
 			model, _ := c.Get(opsModelKey)
@@ -724,6 +856,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 			if apiKey != nil {
 				entry.APIKeyID = &apiKey.ID
+				entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
 				if apiKey.User != nil {
 					entry.UserID = &apiKey.User.ID
 				}
@@ -768,7 +901,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			return
 		}
 
-		apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+		apiKey := getOpsAPIKey(c)
 
 		clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
 
@@ -914,6 +1047,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		if apiKey != nil {
 			entry.APIKeyID = &apiKey.ID
+			// 有效(未删除)key 报错时快照前缀,key 之后被删也保留;与 INVALID_API_KEY 的 attempted_key_prefix 互斥。
+			entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
 			if apiKey.User != nil {
 				entry.UserID = &apiKey.User.ID
 			}
@@ -932,8 +1067,156 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			entry.ClientIP = &clientIP
 		}
 
+		// 已删除 key 归因:仅 INVALID_API_KEY 才尝试。响应已写出,此处不阻塞客户端。
+		if parsed.Code == opsCodeInvalidAPIKey {
+			if attemptedKey := extractAttemptedKey(c); attemptedKey != "" {
+				entry.AttemptedKeyPrefix = keyPrefix(attemptedKey, 8)
+				if looksLikeSystemKey(attemptedKey) {
+					if res, lookupErr := ops.LookupDeletedKeyAudit(c.Request.Context(), attemptedKey); lookupErr != nil {
+						log.Printf("[OpsErrorLogger] LookupDeletedKeyAudit failed: %v", lookupErr)
+					} else if res != nil {
+						owner := res.UserID
+						entry.DeletedKeyOwnerUserID = &owner
+						entry.DeletedKeyName = res.KeyName
+					}
+				}
+			}
+		}
+
 		enqueueOpsErrorLog(ops, entry)
 	}
+}
+
+// logOpsStreamError 记录一次挂在已固化 HTTP 200 SSE 流上的就地错误。
+// 由于 wire 状态码停留在 200，常规的 status>=400 捕获路径永远不会触发；
+// handleStreamingAwareError 通过 service.MarkOpsStreamError 标记这类错误，
+// 此函数据此补记一条错误日志，让并发限流/流内失败在错误看板里可见。
+//
+// 仅在 status<400 且不存在上游错误上下文时调用：上游透传错误已由中间件的
+// upstream-context 分支落库，无需在此重复记录。
+func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) {
+	streamErr, ok := service.GetOpsStreamError(c)
+	if !ok {
+		return
+	}
+
+	// 命中 skip_monitoring=true 透传规则的请求跳过落库，与其它分支一致。
+	if v, ok := c.Get(service.OpsSkipPassthroughKey); ok {
+		if skip, _ := v.(bool); skip {
+			return
+		}
+	}
+
+	// 复用与 status>=400 分支相同的设置过滤（context canceled / 无可用账号等）。
+	if shouldSkipOpsErrorLog(c.Request.Context(), ops, streamErr.Message, streamErr.Message, c.Request.URL.Path) {
+		return
+	}
+
+	// 分级用「本应返回的状态码」(如并发限流 429)，wire 状态码缺省时回退。
+	classifyStatus := streamErr.IntendedStatus
+	if classifyStatus <= 0 {
+		classifyStatus = wireStatus
+	}
+	normalizedType := normalizeOpsErrorType(streamErr.ErrType, "")
+	phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, streamErr.Message, "", classifyStatus)
+
+	apiKey := getOpsAPIKey(c)
+	clientRequestID, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string)
+
+	model, _ := c.Get(opsModelKey)
+	var modelName string
+	if s, ok := model.(string); ok {
+		modelName = s
+	}
+	accountIDV, _ := c.Get(opsAccountIDKey)
+	var accountID *int64
+	if v, ok := accountIDV.(int64); ok && v > 0 {
+		accountID = &v
+	}
+
+	fallbackPlatform := guessPlatformFromPath(c.Request.URL.Path)
+	platform := resolveOpsPlatform(apiKey, fallbackPlatform)
+
+	requestID := c.Writer.Header().Get("X-Request-Id")
+	if requestID == "" {
+		requestID = c.Writer.Header().Get("x-request-id")
+	}
+
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID:       requestID,
+		ClientRequestID: clientRequestID,
+
+		AccountID: accountID,
+		Platform:  platform,
+		Model:     modelName,
+		RequestPath: func() string {
+			if c.Request != nil && c.Request.URL != nil {
+				return c.Request.URL.Path
+			}
+			return ""
+		}(),
+		// 就地 SSE 错误只出现在流式请求上。
+		Stream:           true,
+		InboundEndpoint:  GetInboundEndpoint(c),
+		UpstreamEndpoint: GetUpstreamEndpoint(c, platform),
+		RequestedModel:   modelName,
+		UpstreamModel: func() string {
+			if v, ok := c.Get(opsUpstreamModelKey); ok {
+				if s, ok := v.(string); ok {
+					return strings.TrimSpace(s)
+				}
+			}
+			return ""
+		}(),
+		RequestType: func() *int16 {
+			if v, ok := c.Get(opsRequestTypeKey); ok {
+				switch t := v.(type) {
+				case int16:
+					return &t
+				case int:
+					v16 := int16(t)
+					return &v16
+				}
+			}
+			return nil
+		}(),
+		UserAgent: c.GetHeader("User-Agent"),
+
+		ErrorPhase:        phase,
+		ErrorType:         normalizedType,
+		Severity:          classifyOpsSeverity(normalizedType, classifyStatus),
+		StatusCode:        wireStatus,
+		IsBusinessLimited: isBusinessLimited,
+		IsCountTokens:     isCountTokensRequest(c),
+
+		ErrorMessage: streamErr.Message,
+		ErrorBody:    "",
+		ErrorSource:  errorSource,
+		ErrorOwner:   errorOwner,
+
+		CreatedAt: time.Now(),
+	}
+	applyOpsLatencyFieldsFromContext(c, entry)
+
+	if apiKey != nil {
+		entry.APIKeyID = &apiKey.ID
+		entry.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
+		if apiKey.User != nil {
+			entry.UserID = &apiKey.User.ID
+		}
+		if apiKey.GroupID != nil {
+			entry.GroupID = apiKey.GroupID
+		}
+		if apiKey.Group != nil && apiKey.Group.Platform != "" {
+			entry.Platform = apiKey.Group.Platform
+		}
+	}
+
+	if clientIP := strings.TrimSpace(ip.GetClientIP(c)); clientIP != "" {
+		entry.ClientIP = &clientIP
+	}
+
+	enqueueOpsErrorLog(ops, entry)
 }
 
 // isCountTokensRequest checks if the request is a count_tokens request
@@ -1036,6 +1319,20 @@ func parseOpsErrorResponse(body []byte) parsedOpsError {
 	}
 
 	return parsedOpsError{Message: truncateString(string(body), 1024)}
+}
+
+// getOpsAPIKey 返回用于 Ops 错误日志的 API Key：优先取已鉴权写入的正式 key；
+// 鉴权早退（分组停用/删除、Key 停用/过期/额度、用户停用、IP 限制等）时，
+// 正式 key 尚未写入，回退到 middleware 写入的 ops fallback key
+// （含 User/Group/Platform），从而让日志能展示 用户/分组/平台。
+func getOpsAPIKey(c *gin.Context) *service.APIKey {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil {
+		return apiKey
+	}
+	if apiKey, ok := middleware2.GetOpsFallbackAPIKey(c); ok && apiKey != nil {
+		return apiKey
+	}
+	return nil
 }
 
 func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
@@ -1393,4 +1690,10 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 	}
 
 	return false
+}
+
+// shouldSkipOpsErrorLogForCyber：cyber_policy 命中的请求由 recordCyberPolicyIfMarked
+// 统一落一条 status=403 的错误请求，故中间件跳过自身落库，避免双写。
+func shouldSkipOpsErrorLogForCyber(c *gin.Context) bool {
+	return service.GetOpsCyberPolicy(c) != nil
 }
