@@ -530,6 +530,11 @@ func classifyOpenAIWSErrorEventFromRaw(codeRaw, errTypeRaw, msgRaw string) (stri
 		return "invalid_encrypted_content", true
 	case "previous_response_not_found":
 		return "previous_response_not_found", true
+	case "stream_read_error", "stream_error":
+		// These errors can happen before the first downstream token. In that
+		// case the caller can discard the broken connection and retry/fail over
+		// without exposing a terminal error event to the client.
+		return "read_event", true
 	}
 	if isOpenAIWSRateLimitError(codeRaw, errTypeRaw, msgRaw) {
 		return "upstream_rate_limited", false

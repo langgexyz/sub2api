@@ -105,6 +105,10 @@ func TestClassifyOpenAIWSErrorEvent(t *testing.T) {
 	require.Equal(t, "upgrade_required", reason)
 	require.True(t, recoverable)
 
+	reason, recoverable = classifyOpenAIWSErrorEvent([]byte(`{"type":"error","error":{"code":"stream_read_error","message":"stream_read_error"}}`))
+	require.Equal(t, "read_event", reason)
+	require.True(t, recoverable)
+
 	reason, recoverable = classifyOpenAIWSErrorEvent([]byte(`{"type":"error","error":{"code":"previous_response_not_found","message":"not found"}}`))
 	require.Equal(t, "previous_response_not_found", reason)
 	require.True(t, recoverable)
