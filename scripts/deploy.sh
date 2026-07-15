@@ -137,6 +137,13 @@ log "prod smoke test: /api/v1/settings/public code=${PUBLIC_CODE}"
 
 # --- 8. Stop old blue container ---
 log "stopping old blue container..."
+# Preserve the previous container's recent logs before removing it. Container
+# logs otherwise disappear with the blue-green cleanup and cannot be correlated
+# with a deployment afterwards.
+ARCHIVE_DIR="/home/zero/ccdirect-logs"
+mkdir -p "${ARCHIVE_DIR}"
+docker logs --since 1h s2a-api > "${ARCHIVE_DIR}/s2a-api-${SHA}-previous.log" 2>&1 || true
+find "${ARCHIVE_DIR}" -type f -name 's2a-api-*.log' -mtime +14 -delete
 docker stop s2a-api 2>/dev/null || true
 docker rename s2a-api s2a-api-blue-old 2>/dev/null || true
 docker rename s2a-api-green s2a-api
