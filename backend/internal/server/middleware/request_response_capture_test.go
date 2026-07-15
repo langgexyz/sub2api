@@ -92,7 +92,7 @@ func TestRequestResponseCaptureStoresFullBodyNoTruncation(t *testing.T) {
 		c.String(http.StatusOK, "ok")
 	})
 
-	// 大 body：下游与留存副本都必须是完整长度，不截断。
+	// 大 body：下游仍收到完整长度，但留存副本受上限保护。
 	big := 8 << 20 // 8 MiB
 	reqBody := strings.Repeat("x", big)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(reqBody))
@@ -101,8 +101,8 @@ func TestRequestResponseCaptureStoresFullBodyNoTruncation(t *testing.T) {
 
 	require.Equal(t, big, downstreamLen, "下游应收到完整 body")
 	require.Len(t, repo.logs, 1)
-	require.False(t, repo.logs[0].RequestTruncated)
-	require.Len(t, repo.logs[0].RequestBody, big, "留存副本应完整不截断")
+	require.True(t, repo.logs[0].RequestTruncated)
+	require.Len(t, repo.logs[0].RequestBody, requestResponseCaptureMaxBytes, "留存副本应受上限保护")
 }
 
 func TestExtractSessionHashEmptyWithoutMetadata(t *testing.T) {

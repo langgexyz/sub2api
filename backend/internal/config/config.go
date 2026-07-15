@@ -1323,6 +1323,9 @@ type OpsCleanupConfig struct {
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
+	// RequestResponseLogRetentionDays controls raw request/response retention.
+	// It is independent from error-log retention because raw payloads are much larger.
+	RequestResponseLogRetentionDays int `mapstructure:"request_response_log_retention_days"`
 }
 
 type OpsAggregationConfig struct {
@@ -1810,8 +1813,10 @@ func setDefaults() {
 	viper.SetDefault("database.password", "postgres")
 	viper.SetDefault("database.dbname", "sub2api")
 	viper.SetDefault("database.sslmode", "prefer")
-	viper.SetDefault("database.max_open_conns", 256)
-	viper.SetDefault("database.max_idle_conns", 128)
+	// Keep the application pool below the PostgreSQL connection budget on the
+	// small production footprint; callers still queue in database/sql.
+	viper.SetDefault("database.max_open_conns", 80)
+	viper.SetDefault("database.max_idle_conns", 32)
 	viper.SetDefault("database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("database.conn_max_idle_time_minutes", 5)
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
@@ -1886,6 +1891,7 @@ func setDefaults() {
 	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
+	viper.SetDefault("ops.cleanup.request_response_log_retention_days", 30)
 	viper.SetDefault("ops.aggregation.enabled", true)
 	viper.SetDefault("ops.metrics_collector_cache.enabled", true)
 	// TTL should be slightly larger than collection interval (1m) to maximize cross-replica cache hits.
@@ -3058,6 +3064,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.Cleanup.HourlyMetricsRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.hourly_metrics_retention_days must be non-negative")
+	}
+	if c.Ops.Cleanup.RequestResponseLogRetentionDays < 0 {
+		return fmt.Errorf("ops.cleanup.request_response_log_retention_days must be non-negative")
 	}
 	if c.Ops.Cleanup.Enabled && strings.TrimSpace(c.Ops.Cleanup.Schedule) == "" {
 		return fmt.Errorf("ops.cleanup.schedule is required when ops.cleanup.enabled=true")
