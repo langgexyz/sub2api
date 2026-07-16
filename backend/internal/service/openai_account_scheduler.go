@@ -1705,6 +1705,12 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	platform = normalizeOpenAICompatiblePlatform(platform)
+
+	// 跨组模型路由（issue #82）：OpenAI 兼容路径（含 grok）有自己的调度器，不经过
+	// GatewayService.resolveGatewayGroup，所以必须在这里独立认一次有效分组。
+	// 漏了这里的症状是：协议已按目标组交给 OpenAIGateway，选号却仍在源组里找 grok
+	// 账号 -> no available accounts。这是 P2 部署后真调才炸出来的。
+	groupID = EffectiveGroupIDForScheduling(ctx, groupID)
 	decision := OpenAIAccountScheduleDecision{}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
