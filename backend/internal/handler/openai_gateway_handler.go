@@ -96,18 +96,41 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	}
 }
 
-func openAICompatibleRequestPlatform(apiKey *service.APIKey) string {
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGrok {
+// effectiveGroupPlatform 返回本请求生效的分组平台。
+//
+// 跨组模型路由（issue #82）命中时以**目标分组**为准：key 绑在 anthropic 组、发
+// grok-4.5 命中路由后，这里必须返回 grok，否则请求会被按 OpenAI 协议转换后发给
+// xAI 上游。未命中路由时回落 apiKey.Group.Platform，即原行为。
+func effectiveGroupPlatform(c *gin.Context, apiKey *service.APIKey) string {
+	if c != nil && c.Request != nil {
+		if platform, ok := c.Request.Context().Value(ctxkey.EffectiveGroupPlatform).(string); ok && platform != "" {
+			return platform
+		}
+	}
+	if apiKey != nil && apiKey.Group != nil {
+		return apiKey.Group.Platform
+	}
+	return ""
+}
+
+func openAICompatibleRequestPlatform(c *gin.Context, apiKey *service.APIKey) string {
+	if effectiveGroupPlatform(c, apiKey) == service.PlatformGrok {
 		return service.PlatformGrok
 	}
 	return service.PlatformOpenAI
 }
 
-func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
+// allowOpenAICompatibleMessagesDispatch 判断本请求能否用 /v1/messages（Anthropic 方言）
+// 打 OpenAI 兼容上游。
+//
+// 必须按**有效分组**判：跨组路由把 grok-4.5 导到 grok 组时，源组（anthropic）的
+// AllowMessagesDispatch 通常是关的，按源组判会把已经路由成功的请求挡在门外
+// （实测症状：This group does not allow /v1/messages dispatch）。grok 组本身免检。
+func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
 	}
-	if apiKey.Group.Platform == service.PlatformGrok {
+	if effectiveGroupPlatform(c, apiKey) == service.PlatformGrok {
 		return true
 	}
 	return apiKey.Group.AllowMessagesDispatch
@@ -299,7 +322,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -746,7 +769,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	)
 
 	// 检查分组是否允许 /v1/messages 调度
-	if !allowOpenAICompatibleMessagesDispatch(apiKey) {
+	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
 		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group does not allow /v1/messages dispatch")
 		return
@@ -806,7 +829,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -1458,7 +1481,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
