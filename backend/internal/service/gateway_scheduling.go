@@ -854,18 +854,25 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 	// 跨组模型路由（issue #82）：middleware.ResolveEffectiveGroup 已按请求模型解析出
 	// 目标分组并写进 ctx，这里改从目标分组起算。
 	//
-	// 为什么切在这一处：所有选号入口（SelectAccountForModelWithExclusions、
-	// SelectAccountWithLoadAwareness -> checkClaudeCodeRestriction）都汇流到本函数，
-	// 在这里换起点等于让全部调用点自动跟随，handler 一行不用改。
-	//
 	// 计费不受影响：计费走 apiKey.GroupID（源分组），根本不经过本函数 —— 这正是
 	// D1「账单算源组、份额算目标组」在实现上天然成立的原因，不需要额外做事。
-	if effectiveID, ok := ctx.Value(ctxkey.EffectiveGroupID).(int64); ok && effectiveID > 0 {
-		currentID := effectiveID
-		return s.resolveGatewayGroupFrom(ctx, currentID)
-	}
+	return s.resolveGatewayGroupFrom(ctx, *EffectiveGroupIDForScheduling(ctx, groupID))
+}
 
-	return s.resolveGatewayGroupFrom(ctx, *groupID)
+// EffectiveGroupIDForScheduling 返回**选号**应该用的分组 ID：跨组模型路由命中时是
+// 目标分组，否则原样返回传入的分组。
+//
+// 为什么要有这个公共 helper：网关有两套彼此独立的调度器 —— GatewayService（原生
+// Anthropic/Gemini 路径，汇流到 resolveGatewayGroup）与 OpenAIGatewayService
+// （OpenAI 兼容路径，含 grok，有自己的 selectAccountWithScheduler）。两边都得认
+// 有效分组，否则「协议按目标组走了、选号还在源组里找」，症状是 no available accounts。
+//
+// 只影响选号，不影响计费：计费一律走 apiKey.GroupID（源分组）。
+func EffectiveGroupIDForScheduling(ctx context.Context, groupID *int64) *int64 {
+	if effectiveID, ok := ctx.Value(ctxkey.EffectiveGroupID).(int64); ok && effectiveID > 0 {
+		return &effectiveID
+	}
+	return groupID
 }
 
 // resolveGatewayGroupFrom 从指定分组起算 fallback 链（claude_code_only 降级），带环检测。
