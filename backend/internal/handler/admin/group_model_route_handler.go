@@ -24,7 +24,6 @@ type CreateGroupModelRouteRequest struct {
 	GroupID       int64  `json:"group_id" binding:"required"`
 	ModelPattern  string `json:"model_pattern" binding:"required"`
 	TargetGroupID int64  `json:"target_group_id" binding:"required"`
-	Priority      *int   `json:"priority"`
 	Enabled       *bool  `json:"enabled"`
 }
 
@@ -33,7 +32,6 @@ type UpdateGroupModelRouteRequest struct {
 	GroupID       *int64  `json:"group_id"`
 	ModelPattern  *string `json:"model_pattern"`
 	TargetGroupID *int64  `json:"target_group_id"`
-	Priority      *int    `json:"priority"`
 	Enabled       *bool   `json:"enabled"`
 }
 
@@ -98,11 +96,7 @@ func (h *GroupModelRouteHandler) Create(c *gin.Context) {
 		GroupID:       req.GroupID,
 		ModelPattern:  req.ModelPattern,
 		TargetGroupID: req.TargetGroupID,
-		Priority:      model.DefaultRoutePriority,
 		Enabled:       true,
-	}
-	if req.Priority != nil {
-		route.Priority = *req.Priority
 	}
 	if req.Enabled != nil {
 		route.Enabled = *req.Enabled
@@ -152,9 +146,6 @@ func (h *GroupModelRouteHandler) Update(c *gin.Context) {
 	}
 	if req.TargetGroupID != nil {
 		route.TargetGroupID = *req.TargetGroupID
-	}
-	if req.Priority != nil {
-		route.Priority = *req.Priority
 	}
 	if req.Enabled != nil {
 		route.Enabled = *req.Enabled

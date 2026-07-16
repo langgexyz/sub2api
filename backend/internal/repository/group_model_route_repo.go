@@ -18,11 +18,11 @@ func NewGroupModelRouteRepository(client *ent.Client) service.GroupModelRouteRep
 	return &groupModelRouteRepository{client: client}
 }
 
-// ListByGroupID 获取某个源分组的全部路由规则（含 disabled），按 priority 升序
+// ListByGroupID 获取某个源分组的全部路由规则（含 disabled），按 model_pattern 升序
 func (r *groupModelRouteRepository) ListByGroupID(ctx context.Context, groupID int64) ([]*model.GroupModelRoute, error) {
 	routes, err := r.client.GroupModelRoute.Query().
 		Where(groupmodelroute.GroupIDEQ(groupID)).
-		Order(ent.Asc(groupmodelroute.FieldPriority), ent.Asc(groupmodelroute.FieldID)).
+		Order(ent.Asc(groupmodelroute.FieldModelPattern), ent.Asc(groupmodelroute.FieldID)).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -30,10 +30,10 @@ func (r *groupModelRouteRepository) ListByGroupID(ctx context.Context, groupID i
 	return r.toModels(routes), nil
 }
 
-// ListAll 获取全部路由规则，按 (group_id, priority) 升序
+// ListAll 获取全部路由规则，按 (group_id, model_pattern) 升序
 func (r *groupModelRouteRepository) ListAll(ctx context.Context) ([]*model.GroupModelRoute, error) {
 	routes, err := r.client.GroupModelRoute.Query().
-		Order(ent.Asc(groupmodelroute.FieldGroupID), ent.Asc(groupmodelroute.FieldPriority), ent.Asc(groupmodelroute.FieldID)).
+		Order(ent.Asc(groupmodelroute.FieldGroupID), ent.Asc(groupmodelroute.FieldModelPattern), ent.Asc(groupmodelroute.FieldID)).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -59,7 +59,6 @@ func (r *groupModelRouteRepository) Create(ctx context.Context, route *model.Gro
 		SetGroupID(route.GroupID).
 		SetModelPattern(route.ModelPattern).
 		SetTargetGroupID(route.TargetGroupID).
-		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
 		Save(ctx)
 	if err != nil {
@@ -74,7 +73,6 @@ func (r *groupModelRouteRepository) Update(ctx context.Context, route *model.Gro
 		SetGroupID(route.GroupID).
 		SetModelPattern(route.ModelPattern).
 		SetTargetGroupID(route.TargetGroupID).
-		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
 		Save(ctx)
 	if err != nil {
@@ -105,7 +103,6 @@ func (r *groupModelRouteRepository) toModel(e *ent.GroupModelRoute) *model.Group
 		GroupID:       e.GroupID,
 		ModelPattern:  e.ModelPattern,
 		TargetGroupID: e.TargetGroupID,
-		Priority:      e.Priority,
 		Enabled:       e.Enabled,
 		CreatedAt:     e.CreatedAt,
 		UpdatedAt:     e.UpdatedAt,

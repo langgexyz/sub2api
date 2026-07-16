@@ -25274,8 +25274,6 @@ type GroupModelRouteMutation struct {
 	model_pattern      *string
 	target_group_id    *int64
 	addtarget_group_id *int64
-	priority           *int
-	addpriority        *int
 	enabled            *bool
 	clearedFields      map[string]struct{}
 	done               bool
@@ -25601,62 +25599,6 @@ func (m *GroupModelRouteMutation) ResetTargetGroupID() {
 	m.addtarget_group_id = nil
 }
 
-// SetPriority sets the "priority" field.
-func (m *GroupModelRouteMutation) SetPriority(i int) {
-	m.priority = &i
-	m.addpriority = nil
-}
-
-// Priority returns the value of the "priority" field in the mutation.
-func (m *GroupModelRouteMutation) Priority() (r int, exists bool) {
-	v := m.priority
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldPriority returns the old "priority" field's value of the GroupModelRoute entity.
-// If the GroupModelRoute object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *GroupModelRouteMutation) OldPriority(ctx context.Context) (v int, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldPriority is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldPriority requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldPriority: %w", err)
-	}
-	return oldValue.Priority, nil
-}
-
-// AddPriority adds i to the "priority" field.
-func (m *GroupModelRouteMutation) AddPriority(i int) {
-	if m.addpriority != nil {
-		*m.addpriority += i
-	} else {
-		m.addpriority = &i
-	}
-}
-
-// AddedPriority returns the value that was added to the "priority" field in this mutation.
-func (m *GroupModelRouteMutation) AddedPriority() (r int, exists bool) {
-	v := m.addpriority
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// ResetPriority resets all changes to the "priority" field.
-func (m *GroupModelRouteMutation) ResetPriority() {
-	m.priority = nil
-	m.addpriority = nil
-}
-
 // SetEnabled sets the "enabled" field.
 func (m *GroupModelRouteMutation) SetEnabled(b bool) {
 	m.enabled = &b
@@ -25727,7 +25669,7 @@ func (m *GroupModelRouteMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupModelRouteMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 6)
 	if m.created_at != nil {
 		fields = append(fields, groupmodelroute.FieldCreatedAt)
 	}
@@ -25742,9 +25684,6 @@ func (m *GroupModelRouteMutation) Fields() []string {
 	}
 	if m.target_group_id != nil {
 		fields = append(fields, groupmodelroute.FieldTargetGroupID)
-	}
-	if m.priority != nil {
-		fields = append(fields, groupmodelroute.FieldPriority)
 	}
 	if m.enabled != nil {
 		fields = append(fields, groupmodelroute.FieldEnabled)
@@ -25767,8 +25706,6 @@ func (m *GroupModelRouteMutation) Field(name string) (ent.Value, bool) {
 		return m.ModelPattern()
 	case groupmodelroute.FieldTargetGroupID:
 		return m.TargetGroupID()
-	case groupmodelroute.FieldPriority:
-		return m.Priority()
 	case groupmodelroute.FieldEnabled:
 		return m.Enabled()
 	}
@@ -25790,8 +25727,6 @@ func (m *GroupModelRouteMutation) OldField(ctx context.Context, name string) (en
 		return m.OldModelPattern(ctx)
 	case groupmodelroute.FieldTargetGroupID:
 		return m.OldTargetGroupID(ctx)
-	case groupmodelroute.FieldPriority:
-		return m.OldPriority(ctx)
 	case groupmodelroute.FieldEnabled:
 		return m.OldEnabled(ctx)
 	}
@@ -25838,13 +25773,6 @@ func (m *GroupModelRouteMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetTargetGroupID(v)
 		return nil
-	case groupmodelroute.FieldPriority:
-		v, ok := value.(int)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetPriority(v)
-		return nil
 	case groupmodelroute.FieldEnabled:
 		v, ok := value.(bool)
 		if !ok {
@@ -25866,9 +25794,6 @@ func (m *GroupModelRouteMutation) AddedFields() []string {
 	if m.addtarget_group_id != nil {
 		fields = append(fields, groupmodelroute.FieldTargetGroupID)
 	}
-	if m.addpriority != nil {
-		fields = append(fields, groupmodelroute.FieldPriority)
-	}
 	return fields
 }
 
@@ -25881,8 +25806,6 @@ func (m *GroupModelRouteMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedGroupID()
 	case groupmodelroute.FieldTargetGroupID:
 		return m.AddedTargetGroupID()
-	case groupmodelroute.FieldPriority:
-		return m.AddedPriority()
 	}
 	return nil, false
 }
@@ -25905,13 +25828,6 @@ func (m *GroupModelRouteMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddTargetGroupID(v)
-		return nil
-	case groupmodelroute.FieldPriority:
-		v, ok := value.(int)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.AddPriority(v)
 		return nil
 	}
 	return fmt.Errorf("unknown GroupModelRoute numeric field %s", name)
@@ -25954,9 +25870,6 @@ func (m *GroupModelRouteMutation) ResetField(name string) error {
 		return nil
 	case groupmodelroute.FieldTargetGroupID:
 		m.ResetTargetGroupID()
-		return nil
-	case groupmodelroute.FieldPriority:
-		m.ResetPriority()
 		return nil
 	case groupmodelroute.FieldEnabled:
 		m.ResetEnabled()

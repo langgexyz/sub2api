@@ -23,8 +23,6 @@ const (
 	FieldModelPattern = "model_pattern"
 	// FieldTargetGroupID holds the string denoting the target_group_id field in the database.
 	FieldTargetGroupID = "target_group_id"
-	// FieldPriority holds the string denoting the priority field in the database.
-	FieldPriority = "priority"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
 	// Table holds the table name of the groupmodelroute in the database.
@@ -39,7 +37,6 @@ var Columns = []string{
 	FieldGroupID,
 	FieldModelPattern,
 	FieldTargetGroupID,
-	FieldPriority,
 	FieldEnabled,
 }
 
@@ -62,8 +59,6 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// ModelPatternValidator is a validator for the "model_pattern" field. It is called by the builders before save.
 	ModelPatternValidator func(string) error
-	// DefaultPriority holds the default value on creation for the "priority" field.
-	DefaultPriority int
 	// DefaultEnabled holds the default value on creation for the "enabled" field.
 	DefaultEnabled bool
 )
@@ -99,11 +94,6 @@ func ByModelPattern(opts ...sql.OrderTermOption) OrderOption {
 // ByTargetGroupID orders the results by the target_group_id field.
 func ByTargetGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTargetGroupID, opts...).ToFunc()
-}
-
-// ByPriority orders the results by the priority field.
-func ByPriority(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldPriority, opts...).ToFunc()
 }
 
 // ByEnabled orders the results by the enabled field.

@@ -33,7 +33,6 @@ func (s *GroupModelRouteRepoSuite) newRoute(groupID int64, pattern string, targe
 		GroupID:       groupID,
 		ModelPattern:  pattern,
 		TargetGroupID: target,
-		Priority:      model.DefaultRoutePriority,
 		Enabled:       true,
 	}
 }
@@ -44,7 +43,6 @@ func (s *GroupModelRouteRepoSuite) TestCreateAndGetByID() {
 	require.NotZero(s.T(), created.ID)
 	require.Equal(s.T(), "grok-4.5", created.ModelPattern)
 	require.Equal(s.T(), int64(5), created.TargetGroupID)
-	require.Equal(s.T(), model.DefaultRoutePriority, created.Priority)
 	require.True(s.T(), created.Enabled)
 	require.False(s.T(), created.CreatedAt.IsZero(), "TimeMixin must populate created_at")
 
@@ -88,15 +86,11 @@ func (s *GroupModelRouteRepoSuite) TestMultipleGroupsTargetSameGroup() {
 	require.NoError(s.T(), err, "multiple source groups may delegate to the same target group")
 }
 
-func (s *GroupModelRouteRepoSuite) TestListByGroupIDOrdersByPriority() {
-	low := s.newRoute(1, "grok-a*", 5)
-	low.Priority = 90
-	_, err := s.repo.Create(s.ctx, low)
+func (s *GroupModelRouteRepoSuite) TestListByGroupIDOrdersByPattern() {
+	_, err := s.repo.Create(s.ctx, s.newRoute(1, "grok-b*", 5))
 	require.NoError(s.T(), err)
 
-	high := s.newRoute(1, "grok-b*", 5)
-	high.Priority = 10
-	_, err = s.repo.Create(s.ctx, high)
+	_, err = s.repo.Create(s.ctx, s.newRoute(1, "grok-a*", 5))
 	require.NoError(s.T(), err)
 
 	_, err = s.repo.Create(s.ctx, s.newRoute(2, "grok-c*", 5))
@@ -105,8 +99,8 @@ func (s *GroupModelRouteRepoSuite) TestListByGroupIDOrdersByPriority() {
 	routes, err := s.repo.ListByGroupID(s.ctx, 1)
 	require.NoError(s.T(), err)
 	require.Len(s.T(), routes, 2, "must only return routes of the requested source group")
-	require.Equal(s.T(), 10, routes[0].Priority, "lower priority number comes first")
-	require.Equal(s.T(), 90, routes[1].Priority)
+	require.Equal(s.T(), "grok-a*", routes[0].ModelPattern, "ordered by model_pattern")
+	require.Equal(s.T(), "grok-b*", routes[1].ModelPattern)
 }
 
 // TestListByGroupIDIncludesDisabled 列表要含 disabled 规则，admin 才看得见并能重新打开。
@@ -128,13 +122,11 @@ func (s *GroupModelRouteRepoSuite) TestUpdate() {
 
 	created.TargetGroupID = 7
 	created.Enabled = false
-	created.Priority = 10
 
 	updated, err := s.repo.Update(s.ctx, created)
 	require.NoError(s.T(), err)
 	require.Equal(s.T(), int64(7), updated.TargetGroupID)
 	require.False(s.T(), updated.Enabled)
-	require.Equal(s.T(), 10, updated.Priority)
 
 	got, err := s.repo.GetByID(s.ctx, created.ID)
 	require.NoError(s.T(), err)

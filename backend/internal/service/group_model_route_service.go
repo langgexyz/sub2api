@@ -10,9 +10,9 @@ import (
 
 // GroupModelRouteRepository 定义跨组模型路由规则的数据访问接口
 type GroupModelRouteRepository interface {
-	// ListByGroupID 获取某个源分组的全部路由规则（含 disabled），按 priority 升序
+	// ListByGroupID 获取某个源分组的全部路由规则（含 disabled），按 model_pattern 升序
 	ListByGroupID(ctx context.Context, groupID int64) ([]*model.GroupModelRoute, error)
-	// ListAll 获取全部路由规则，按 (group_id, priority) 升序
+	// ListAll 获取全部路由规则，按 (group_id, model_pattern) 升序
 	ListAll(ctx context.Context) ([]*model.GroupModelRoute, error)
 	// GetByID 根据 ID 获取规则，未找到返回 (nil, nil)
 	GetByID(ctx context.Context, id int64) (*model.GroupModelRoute, error)
@@ -42,10 +42,9 @@ func NewGroupModelRouteService(repo GroupModelRouteRepository, groupRepo GroupRe
 // 匹配语义（issue #82 决策）：**模式最长优先**，与 account 层 ResolveMappedModel 的
 // 语义保持一致。精确模式视为比同长度前缀模式更具体，故优先于通配模式。
 //
-// priority 只在同具体度的规则间做二级决相。注意：受 (group_id, model_pattern) 唯一索引
-// 约束，同一分组内两条不同模式不可能对同一模型产生相同具体度，因此 priority 实际上
-// 决定不了匹配结果——它的现实作用是 admin 列表的展示排序。保留它是为了在唯一索引
-// 未来放宽时匹配仍然确定，而不是靠 map/slice 顺序。
+// 最长优先已完全决定结果：受 (group_id, model_pattern) 唯一索引约束，同一分组内两条
+// 不同模式不可能对同一模型产生相同具体度（两个不同的等长字符串不可能同时是同一个串的
+// 前缀）。ID 决相只是兜底，保证即便唯一索引未来放宽，结果也不依赖 slice 顺序。
 func ResolveRoute(routes []*model.GroupModelRoute, requestedModel string) *model.GroupModelRoute {
 	if requestedModel == "" {
 		return nil
@@ -61,7 +60,7 @@ func ResolveRoute(routes []*model.GroupModelRoute, requestedModel string) *model
 			continue
 		}
 		spec := patternSpecificity(r.ModelPattern)
-		if best == nil || spec > bestSpec || (spec == bestSpec && routeTieBreak(r, best)) {
+		if best == nil || spec > bestSpec || (spec == bestSpec && r.ID < best.ID) {
 			best, bestSpec = r, spec
 		}
 	}
@@ -75,15 +74,6 @@ func patternSpecificity(pattern string) int {
 		return len(strings.TrimSuffix(pattern, "*"))
 	}
 	return len(pattern) + 1
-}
-
-// routeTieBreak 在具体度相同时判定 a 是否应胜过 b：先比 priority（小者优先），
-// 再比 ID（小者优先），保证结果与遍历顺序无关。
-func routeTieBreak(a, b *model.GroupModelRoute) bool {
-	if a.Priority != b.Priority {
-		return a.Priority < b.Priority
-	}
-	return a.ID < b.ID
 }
 
 // ListByGroupID 获取某个源分组的全部路由规则

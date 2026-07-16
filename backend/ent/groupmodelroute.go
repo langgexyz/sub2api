@@ -27,8 +27,6 @@ type GroupModelRoute struct {
 	ModelPattern string `json:"model_pattern,omitempty"`
 	// 目标分组 ID，命中后请求改由该分组调度
 	TargetGroupID int64 `json:"target_group_id,omitempty"`
-	// 同长度模式命中时的二级决相，数字越小越优先；主排序是模式最长优先
-	Priority int `json:"priority,omitempty"`
 	// 是否启用，关闭后立即回落源分组行为
 	Enabled      bool `json:"enabled,omitempty"`
 	selectValues sql.SelectValues
@@ -41,7 +39,7 @@ func (*GroupModelRoute) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case groupmodelroute.FieldEnabled:
 			values[i] = new(sql.NullBool)
-		case groupmodelroute.FieldID, groupmodelroute.FieldGroupID, groupmodelroute.FieldTargetGroupID, groupmodelroute.FieldPriority:
+		case groupmodelroute.FieldID, groupmodelroute.FieldGroupID, groupmodelroute.FieldTargetGroupID:
 			values[i] = new(sql.NullInt64)
 		case groupmodelroute.FieldModelPattern:
 			values[i] = new(sql.NullString)
@@ -97,12 +95,6 @@ func (_m *GroupModelRoute) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field target_group_id", values[i])
 			} else if value.Valid {
 				_m.TargetGroupID = value.Int64
-			}
-		case groupmodelroute.FieldPriority:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for field priority", values[i])
-			} else if value.Valid {
-				_m.Priority = int(value.Int64)
 			}
 		case groupmodelroute.FieldEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -160,9 +152,6 @@ func (_m *GroupModelRoute) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("target_group_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TargetGroupID))
-	builder.WriteString(", ")
-	builder.WriteString("priority=")
-	builder.WriteString(fmt.Sprintf("%v", _m.Priority))
 	builder.WriteString(", ")
 	builder.WriteString("enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Enabled))

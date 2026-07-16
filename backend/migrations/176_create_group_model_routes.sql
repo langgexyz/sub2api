@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS group_model_routes (
     group_id BIGINT NOT NULL,
     model_pattern VARCHAR(200) NOT NULL,
     target_group_id BIGINT NOT NULL,
-    priority INTEGER NOT NULL DEFAULT 50,
     enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

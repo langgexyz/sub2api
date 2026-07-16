@@ -1131,12 +1131,8 @@ func init() {
 			return nil
 		}
 	}()
-	// groupmodelrouteDescPriority is the schema descriptor for priority field.
-	groupmodelrouteDescPriority := groupmodelrouteFields[3].Descriptor()
-	// groupmodelroute.DefaultPriority holds the default value on creation for the priority field.
-	groupmodelroute.DefaultPriority = groupmodelrouteDescPriority.Default.(int)
 	// groupmodelrouteDescEnabled is the schema descriptor for enabled field.
-	groupmodelrouteDescEnabled := groupmodelrouteFields[4].Descriptor()
+	groupmodelrouteDescEnabled := groupmodelrouteFields[3].Descriptor()
 	// groupmodelroute.DefaultEnabled holds the default value on creation for the enabled field.
 	groupmodelroute.DefaultEnabled = groupmodelrouteDescEnabled.Default.(bool)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

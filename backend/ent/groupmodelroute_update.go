@@ -90,27 +90,6 @@ func (_u *GroupModelRouteUpdate) AddTargetGroupID(v int64) *GroupModelRouteUpdat
 	return _u
 }
 
-// SetPriority sets the "priority" field.
-func (_u *GroupModelRouteUpdate) SetPriority(v int) *GroupModelRouteUpdate {
-	_u.mutation.ResetPriority()
-	_u.mutation.SetPriority(v)
-	return _u
-}
-
-// SetNillablePriority sets the "priority" field if the given value is not nil.
-func (_u *GroupModelRouteUpdate) SetNillablePriority(v *int) *GroupModelRouteUpdate {
-	if v != nil {
-		_u.SetPriority(*v)
-	}
-	return _u
-}
-
-// AddPriority adds value to the "priority" field.
-func (_u *GroupModelRouteUpdate) AddPriority(v int) *GroupModelRouteUpdate {
-	_u.mutation.AddPriority(v)
-	return _u
-}
-
 // SetEnabled sets the "enabled" field.
 func (_u *GroupModelRouteUpdate) SetEnabled(v bool) *GroupModelRouteUpdate {
 	_u.mutation.SetEnabled(v)
@@ -206,12 +185,6 @@ func (_u *GroupModelRouteUpdate) sqlSave(ctx context.Context) (_node int, err er
 	if value, ok := _u.mutation.AddedTargetGroupID(); ok {
 		_spec.AddField(groupmodelroute.FieldTargetGroupID, field.TypeInt64, value)
 	}
-	if value, ok := _u.mutation.Priority(); ok {
-		_spec.SetField(groupmodelroute.FieldPriority, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedPriority(); ok {
-		_spec.AddField(groupmodelroute.FieldPriority, field.TypeInt, value)
-	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(groupmodelroute.FieldEnabled, field.TypeBool, value)
 	}
@@ -294,27 +267,6 @@ func (_u *GroupModelRouteUpdateOne) SetNillableTargetGroupID(v *int64) *GroupMod
 // AddTargetGroupID adds value to the "target_group_id" field.
 func (_u *GroupModelRouteUpdateOne) AddTargetGroupID(v int64) *GroupModelRouteUpdateOne {
 	_u.mutation.AddTargetGroupID(v)
-	return _u
-}
-
-// SetPriority sets the "priority" field.
-func (_u *GroupModelRouteUpdateOne) SetPriority(v int) *GroupModelRouteUpdateOne {
-	_u.mutation.ResetPriority()
-	_u.mutation.SetPriority(v)
-	return _u
-}
-
-// SetNillablePriority sets the "priority" field if the given value is not nil.
-func (_u *GroupModelRouteUpdateOne) SetNillablePriority(v *int) *GroupModelRouteUpdateOne {
-	if v != nil {
-		_u.SetPriority(*v)
-	}
-	return _u
-}
-
-// AddPriority adds value to the "priority" field.
-func (_u *GroupModelRouteUpdateOne) AddPriority(v int) *GroupModelRouteUpdateOne {
-	_u.mutation.AddPriority(v)
 	return _u
 }
 
@@ -442,12 +394,6 @@ func (_u *GroupModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *GroupMo
 	}
 	if value, ok := _u.mutation.AddedTargetGroupID(); ok {
 		_spec.AddField(groupmodelroute.FieldTargetGroupID, field.TypeInt64, value)
-	}
-	if value, ok := _u.mutation.Priority(); ok {
-		_spec.SetField(groupmodelroute.FieldPriority, field.TypeInt, value)
-	}
-	if value, ok := _u.mutation.AddedPriority(); ok {
-		_spec.AddField(groupmodelroute.FieldPriority, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.Enabled(); ok {
 		_spec.SetField(groupmodelroute.FieldEnabled, field.TypeBool, value)

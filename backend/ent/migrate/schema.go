@@ -929,7 +929,6 @@ var (
 		{Name: "group_id", Type: field.TypeInt64},
 		{Name: "model_pattern", Type: field.TypeString, Size: 200},
 		{Name: "target_group_id", Type: field.TypeInt64},
-		{Name: "priority", Type: field.TypeInt, Default: 50},
 		{Name: "enabled", Type: field.TypeBool, Default: true},
 	}
 	// GroupModelRoutesTable holds the schema information for the "group_model_routes" table.
@@ -941,7 +940,7 @@ var (
 			{
 				Name:    "groupmodelroute_group_id_enabled",
 				Unique:  false,
-				Columns: []*schema.Column{GroupModelRoutesColumns[3], GroupModelRoutesColumns[7]},
+				Columns: []*schema.Column{GroupModelRoutesColumns[3], GroupModelRoutesColumns[6]},
 			},
 			{
 				Name:    "groupmodelroute_group_id_model_pattern",

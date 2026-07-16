@@ -8,13 +8,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/model"
 )
 
-func route(id int64, pattern string, target int64, priority int, enabled bool) *model.GroupModelRoute {
+func route(id int64, pattern string, target int64, enabled bool) *model.GroupModelRoute {
 	return &model.GroupModelRoute{
 		ID:            id,
 		GroupID:       1,
 		ModelPattern:  pattern,
 		TargetGroupID: target,
-		Priority:      priority,
 		Enabled:       enabled,
 	}
 }
@@ -22,8 +21,8 @@ func route(id int64, pattern string, target int64, priority int, enabled bool) *
 // TestResolveRouteLongestPatternWins 锁定 issue #82 拍板的匹配语义：模式最长优先。
 func TestResolveRouteLongestPatternWins(t *testing.T) {
 	routes := []*model.GroupModelRoute{
-		route(1, "grok-*", 5, 50, true),
-		route(2, "grok-4.5*", 6, 50, true),
+		route(1, "grok-*", 5, true),
+		route(2, "grok-4.5*", 6, true),
 	}
 
 	got := ResolveRoute(routes, "grok-4.5-turbo")
@@ -38,8 +37,8 @@ func TestResolveRouteLongestPatternWins(t *testing.T) {
 // TestResolveRouteExactBeatsWildcard 精确模式比同前缀长度的通配模式更具体。
 func TestResolveRouteExactBeatsWildcard(t *testing.T) {
 	routes := []*model.GroupModelRoute{
-		route(1, "grok-4.5*", 5, 50, true),
-		route(2, "grok-4.5", 6, 50, true),
+		route(1, "grok-4.5*", 5, true),
+		route(2, "grok-4.5", 6, true),
 	}
 
 	got := ResolveRoute(routes, "grok-4.5")
@@ -54,7 +53,7 @@ func TestResolveRouteExactBeatsWildcard(t *testing.T) {
 // TestResolveRouteIgnoresDisabled 关闭的规则立即回落，不参与匹配（负向用例 N8）。
 func TestResolveRouteIgnoresDisabled(t *testing.T) {
 	routes := []*model.GroupModelRoute{
-		route(1, "grok-4.5", 5, 50, false),
+		route(1, "grok-4.5", 5, false),
 	}
 
 	if got := ResolveRoute(routes, "grok-4.5"); got != nil {
@@ -65,7 +64,7 @@ func TestResolveRouteIgnoresDisabled(t *testing.T) {
 // TestResolveRouteNoMatch 未命中返回 nil，调用方据此留在源分组。
 func TestResolveRouteNoMatch(t *testing.T) {
 	routes := []*model.GroupModelRoute{
-		route(1, "grok-*", 5, 50, true),
+		route(1, "grok-*", 5, true),
 	}
 
 	if got := ResolveRoute(routes, "claude-opus-4-5"); got != nil {
@@ -76,7 +75,7 @@ func TestResolveRouteNoMatch(t *testing.T) {
 // TestResolveRouteEmptyModel 空模型名不匹配任何规则（负向用例 N3：body 无 model 字段）。
 func TestResolveRouteEmptyModel(t *testing.T) {
 	routes := []*model.GroupModelRoute{
-		route(1, "grok-*", 5, 50, true),
+		route(1, "grok-*", 5, true),
 	}
 
 	if got := ResolveRoute(routes, ""); got != nil {
@@ -87,8 +86,8 @@ func TestResolveRouteEmptyModel(t *testing.T) {
 // TestResolveRouteDeterministicOnTie 同具体度时结果必须与遍历顺序无关。
 // 这条守的是 GetRoutingAccountIDs 踩过的坑：那里直接 range map，多模式命中时结果随机。
 func TestResolveRouteDeterministicOnTie(t *testing.T) {
-	a := route(2, "grok-4.5", 6, 10, true)
-	b := route(1, "grok-4.5", 7, 90, true)
+	a := route(2, "grok-4.5", 6, true)
+	b := route(1, "grok-4.5", 7, true)
 
 	// 同一组内唯一索引保证不会有两条同模式规则，这里仅验决相函数本身确定。
 	forward := ResolveRoute([]*model.GroupModelRoute{a, b}, "grok-4.5")
@@ -98,14 +97,14 @@ func TestResolveRouteDeterministicOnTie(t *testing.T) {
 		t.Fatalf("resolution must not depend on slice order: forward=%d reverse=%d",
 			forward.TargetGroupID, reverse.TargetGroupID)
 	}
-	if forward.TargetGroupID != 6 {
-		t.Fatalf("lower priority number should win the tie: want 6, got %d", forward.TargetGroupID)
+	if forward.TargetGroupID != 7 {
+		t.Fatalf("lower ID should win the tie: want 7 (id=1), got %d", forward.TargetGroupID)
 	}
 }
 
 // TestResolveRouteNilEntry 规则集里的 nil 条目不得 panic。
 func TestResolveRouteNilEntry(t *testing.T) {
-	routes := []*model.GroupModelRoute{nil, route(1, "grok-4.5", 5, 50, true)}
+	routes := []*model.GroupModelRoute{nil, route(1, "grok-4.5", 5, true)}
 
 	got := ResolveRoute(routes, "grok-4.5")
 	if got == nil || got.TargetGroupID != 5 {

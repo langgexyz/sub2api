@@ -42,9 +42,6 @@ func (GroupModelRoute) Fields() []ent.Field {
 			Comment("模型模式，支持末尾 * 通配，如 grok-4.5 或 grok-*"),
 		field.Int64("target_group_id").
 			Comment("目标分组 ID，命中后请求改由该分组调度"),
-		field.Int("priority").
-			Default(50).
-			Comment("同长度模式命中时的二级决相，数字越小越优先；主排序是模式最长优先"),
 		field.Bool("enabled").
 			Default(true).
 			Comment("是否启用，关闭后立即回落源分组行为"),

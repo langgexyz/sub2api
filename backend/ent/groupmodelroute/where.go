@@ -79,11 +79,6 @@ func TargetGroupID(v int64) predicate.GroupModelRoute {
 	return predicate.GroupModelRoute(sql.FieldEQ(FieldTargetGroupID, v))
 }
 
-// Priority applies equality check predicate on the "priority" field. It's identical to PriorityEQ.
-func Priority(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldEQ(FieldPriority, v))
-}
-
 // Enabled applies equality check predicate on the "enabled" field. It's identical to EnabledEQ.
 func Enabled(v bool) predicate.GroupModelRoute {
 	return predicate.GroupModelRoute(sql.FieldEQ(FieldEnabled, v))
@@ -312,46 +307,6 @@ func TargetGroupIDLT(v int64) predicate.GroupModelRoute {
 // TargetGroupIDLTE applies the LTE predicate on the "target_group_id" field.
 func TargetGroupIDLTE(v int64) predicate.GroupModelRoute {
 	return predicate.GroupModelRoute(sql.FieldLTE(FieldTargetGroupID, v))
-}
-
-// PriorityEQ applies the EQ predicate on the "priority" field.
-func PriorityEQ(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldEQ(FieldPriority, v))
-}
-
-// PriorityNEQ applies the NEQ predicate on the "priority" field.
-func PriorityNEQ(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldNEQ(FieldPriority, v))
-}
-
-// PriorityIn applies the In predicate on the "priority" field.
-func PriorityIn(vs ...int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldIn(FieldPriority, vs...))
-}
-
-// PriorityNotIn applies the NotIn predicate on the "priority" field.
-func PriorityNotIn(vs ...int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldNotIn(FieldPriority, vs...))
-}
-
-// PriorityGT applies the GT predicate on the "priority" field.
-func PriorityGT(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldGT(FieldPriority, v))
-}
-
-// PriorityGTE applies the GTE predicate on the "priority" field.
-func PriorityGTE(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldGTE(FieldPriority, v))
-}
-
-// PriorityLT applies the LT predicate on the "priority" field.
-func PriorityLT(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldLT(FieldPriority, v))
-}
-
-// PriorityLTE applies the LTE predicate on the "priority" field.
-func PriorityLTE(v int) predicate.GroupModelRoute {
-	return predicate.GroupModelRoute(sql.FieldLTE(FieldPriority, v))
 }
 
 // EnabledEQ applies the EQ predicate on the "enabled" field.

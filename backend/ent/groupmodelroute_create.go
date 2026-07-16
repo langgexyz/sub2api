@@ -68,20 +68,6 @@ func (_c *GroupModelRouteCreate) SetTargetGroupID(v int64) *GroupModelRouteCreat
 	return _c
 }
 
-// SetPriority sets the "priority" field.
-func (_c *GroupModelRouteCreate) SetPriority(v int) *GroupModelRouteCreate {
-	_c.mutation.SetPriority(v)
-	return _c
-}
-
-// SetNillablePriority sets the "priority" field if the given value is not nil.
-func (_c *GroupModelRouteCreate) SetNillablePriority(v *int) *GroupModelRouteCreate {
-	if v != nil {
-		_c.SetPriority(*v)
-	}
-	return _c
-}
-
 // SetEnabled sets the "enabled" field.
 func (_c *GroupModelRouteCreate) SetEnabled(v bool) *GroupModelRouteCreate {
 	_c.mutation.SetEnabled(v)
@@ -139,10 +125,6 @@ func (_c *GroupModelRouteCreate) defaults() {
 		v := groupmodelroute.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
-	if _, ok := _c.mutation.Priority(); !ok {
-		v := groupmodelroute.DefaultPriority
-		_c.mutation.SetPriority(v)
-	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		v := groupmodelroute.DefaultEnabled
 		_c.mutation.SetEnabled(v)
@@ -170,9 +152,6 @@ func (_c *GroupModelRouteCreate) check() error {
 	}
 	if _, ok := _c.mutation.TargetGroupID(); !ok {
 		return &ValidationError{Name: "target_group_id", err: errors.New(`ent: missing required field "GroupModelRoute.target_group_id"`)}
-	}
-	if _, ok := _c.mutation.Priority(); !ok {
-		return &ValidationError{Name: "priority", err: errors.New(`ent: missing required field "GroupModelRoute.priority"`)}
 	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		return &ValidationError{Name: "enabled", err: errors.New(`ent: missing required field "GroupModelRoute.enabled"`)}
@@ -223,10 +202,6 @@ func (_c *GroupModelRouteCreate) createSpec() (*GroupModelRoute, *sqlgraph.Creat
 	if value, ok := _c.mutation.TargetGroupID(); ok {
 		_spec.SetField(groupmodelroute.FieldTargetGroupID, field.TypeInt64, value)
 		_node.TargetGroupID = value
-	}
-	if value, ok := _c.mutation.Priority(); ok {
-		_spec.SetField(groupmodelroute.FieldPriority, field.TypeInt, value)
-		_node.Priority = value
 	}
 	if value, ok := _c.mutation.Enabled(); ok {
 		_spec.SetField(groupmodelroute.FieldEnabled, field.TypeBool, value)
@@ -341,24 +316,6 @@ func (u *GroupModelRouteUpsert) UpdateTargetGroupID() *GroupModelRouteUpsert {
 // AddTargetGroupID adds v to the "target_group_id" field.
 func (u *GroupModelRouteUpsert) AddTargetGroupID(v int64) *GroupModelRouteUpsert {
 	u.Add(groupmodelroute.FieldTargetGroupID, v)
-	return u
-}
-
-// SetPriority sets the "priority" field.
-func (u *GroupModelRouteUpsert) SetPriority(v int) *GroupModelRouteUpsert {
-	u.Set(groupmodelroute.FieldPriority, v)
-	return u
-}
-
-// UpdatePriority sets the "priority" field to the value that was provided on create.
-func (u *GroupModelRouteUpsert) UpdatePriority() *GroupModelRouteUpsert {
-	u.SetExcluded(groupmodelroute.FieldPriority)
-	return u
-}
-
-// AddPriority adds v to the "priority" field.
-func (u *GroupModelRouteUpsert) AddPriority(v int) *GroupModelRouteUpsert {
-	u.Add(groupmodelroute.FieldPriority, v)
 	return u
 }
 
@@ -486,27 +443,6 @@ func (u *GroupModelRouteUpsertOne) AddTargetGroupID(v int64) *GroupModelRouteUps
 func (u *GroupModelRouteUpsertOne) UpdateTargetGroupID() *GroupModelRouteUpsertOne {
 	return u.Update(func(s *GroupModelRouteUpsert) {
 		s.UpdateTargetGroupID()
-	})
-}
-
-// SetPriority sets the "priority" field.
-func (u *GroupModelRouteUpsertOne) SetPriority(v int) *GroupModelRouteUpsertOne {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.SetPriority(v)
-	})
-}
-
-// AddPriority adds v to the "priority" field.
-func (u *GroupModelRouteUpsertOne) AddPriority(v int) *GroupModelRouteUpsertOne {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.AddPriority(v)
-	})
-}
-
-// UpdatePriority sets the "priority" field to the value that was provided on create.
-func (u *GroupModelRouteUpsertOne) UpdatePriority() *GroupModelRouteUpsertOne {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.UpdatePriority()
 	})
 }
 
@@ -802,27 +738,6 @@ func (u *GroupModelRouteUpsertBulk) AddTargetGroupID(v int64) *GroupModelRouteUp
 func (u *GroupModelRouteUpsertBulk) UpdateTargetGroupID() *GroupModelRouteUpsertBulk {
 	return u.Update(func(s *GroupModelRouteUpsert) {
 		s.UpdateTargetGroupID()
-	})
-}
-
-// SetPriority sets the "priority" field.
-func (u *GroupModelRouteUpsertBulk) SetPriority(v int) *GroupModelRouteUpsertBulk {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.SetPriority(v)
-	})
-}
-
-// AddPriority adds v to the "priority" field.
-func (u *GroupModelRouteUpsertBulk) AddPriority(v int) *GroupModelRouteUpsertBulk {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.AddPriority(v)
-	})
-}
-
-// UpdatePriority sets the "priority" field to the value that was provided on create.
-func (u *GroupModelRouteUpsertBulk) UpdatePriority() *GroupModelRouteUpsertBulk {
-	return u.Update(func(s *GroupModelRouteUpsert) {
-		s.UpdatePriority()
 	})
 }
 
