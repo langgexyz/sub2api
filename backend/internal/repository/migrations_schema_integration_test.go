@@ -158,6 +158,15 @@ func TestMigrationsRunner_AuthIdentityAndPaymentSchemaStayAligned(t *testing.T) 
 	requireIndex(t, tx, "payment_orders", "paymentorder_out_trade_no")
 	requirePartialUniqueIndexDefinition(t, tx, "payment_orders", "paymentorder_out_trade_no", "out_trade_no", "WHERE")
 	requireIndexAbsent(t, tx, "payment_orders", "paymentorder_out_trade_no_unique")
+
+	// group_model_routes: 跨组模型路由 (issue #82, migration 176)
+	requireColumn(t, tx, "group_model_routes", "group_id", "bigint", 0, false)
+	requireColumn(t, tx, "group_model_routes", "model_pattern", "character varying", 200, false)
+	requireColumn(t, tx, "group_model_routes", "target_group_id", "bigint", 0, false)
+	requireColumn(t, tx, "group_model_routes", "priority", "integer", 0, false)
+	requireColumn(t, tx, "group_model_routes", "enabled", "boolean", 0, false)
+	requireIndex(t, tx, "group_model_routes", "idx_group_model_routes_group_enabled")
+	requireIndex(t, tx, "group_model_routes", "idx_group_model_routes_group_pattern")
 }
 
 func requireIndex(t *testing.T, tx *sql.Tx, table, index string) {
