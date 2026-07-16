@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -26,23 +27,55 @@ func ctxWithEffectivePlatform(t *testing.T, platform string) *gin.Context {
 	return c
 }
 
+// ctxRoutedTo 模拟中间件跨组路由命中后的 ctx：目标分组对象进 gin ctx、平台快照进 request ctx。
+func ctxRoutedTo(t *testing.T, target *service.Group) *gin.Context {
+	t.Helper()
+	c := ctxWithEffectivePlatform(t, target.Platform)
+	c.Set(string(middleware2.ContextKeyEffectiveGroup), target)
+	return c
+}
+
 func anthropicKey() *service.APIKey {
 	return &service.APIKey{Group: &service.Group{Platform: service.PlatformAnthropic, AllowMessagesDispatch: false}}
 }
 
-// TestAllowMessagesDispatchAcrossGroupRoute 锁定线上实测炸出来的 bug（issue #82 P2）：
-// 跨组路由把 grok-4.5 导到 grok 组后，这道闸若按**源组**判，会把已经路由成功的请求
-// 挡在门外，报 "This group does not allow /v1/messages dispatch"。
-func TestAllowMessagesDispatchAcrossGroupRoute(t *testing.T) {
-	c := ctxWithEffectivePlatform(t, service.PlatformGrok)
+// TestAllowMessagesDispatchUsesTargetGroupFlag 跨组路由后按**目标分组**的旗子判：
+// 谁的账号在服务，就按谁的策略。源组（聚合组）的旗子跟哪个平台在干活毫无关系。
+func TestAllowMessagesDispatchUsesTargetGroupFlag(t *testing.T) {
+	target := &service.Group{Platform: service.PlatformOpenAI, AllowMessagesDispatch: true}
+	c := ctxRoutedTo(t, target)
 
 	if !allowOpenAICompatibleMessagesDispatch(c, anthropicKey()) {
-		t.Fatal("cross-group route to a grok group must be allowed even though the source group has AllowMessagesDispatch=false")
+		t.Fatal("target group opted in (AllowMessagesDispatch=true) -> must be allowed regardless of the source group's flag")
 	}
 }
 
-// TestAllowMessagesDispatchWithoutRouteKeepsSourceGate 未命中路由时必须保持原行为：
-// 按源组的 AllowMessagesDispatch 判，不能因为这次改动放开了原本禁止的调度。
+// TestAllowMessagesDispatchTargetOptOut 目标组没开旗子就必须挡住 —— 这条比正向那条更
+// 重要：它守的是「用户以为在用 Claude、其实被换成别的模型」这个风险不被跨组路由绕过。
+func TestAllowMessagesDispatchTargetOptOut(t *testing.T) {
+	target := &service.Group{Platform: service.PlatformOpenAI, AllowMessagesDispatch: false}
+	c := ctxRoutedTo(t, target)
+
+	if allowOpenAICompatibleMessagesDispatch(c, anthropicKey()) {
+		t.Fatal("target group did not opt in -> must block, even though the request was routed there")
+	}
+}
+
+// TestAllowMessagesDispatchGrokStaysExempt grok 组免检是上游的既定行为
+// （10e623f6 "allow grok messages compatibility"）：grok 组开箱即用支持 /v1/messages。
+// 这条守住它不被「顺手清理硬编码」的重构干掉 —— 那会破坏现有 grok 用户，并在每次
+// 上游同步时跟上游打架。
+func TestAllowMessagesDispatchGrokStaysExempt(t *testing.T) {
+	target := &service.Group{Platform: service.PlatformGrok, AllowMessagesDispatch: false}
+	c := ctxRoutedTo(t, target)
+
+	if !allowOpenAICompatibleMessagesDispatch(c, anthropicKey()) {
+		t.Fatal("grok groups are exempt by upstream design (10e623f6) and must stay exempt")
+	}
+}
+
+// TestAllowMessagesDispatchWithoutRouteKeepsSourceGate 未命中路由时按源组判（源组就是
+// 有效组），保持原行为。
 func TestAllowMessagesDispatchWithoutRouteKeepsSourceGate(t *testing.T) {
 	c := ctxWithEffectivePlatform(t, "")
 

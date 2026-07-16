@@ -201,6 +201,49 @@ func (s *GroupModelRouteService) ResolveEffectiveGroup(ctx context.Context, sour
 	return nil, fmt.Errorf("%w: exceeded %d hops from group %d via model %q", ErrRouteCycle, maxRouteHops, sourceGroupID, requestedModel)
 }
 
+// RoutedTarget 描述一条生效的跨组路由指向何处：目标分组 + 该路由的模型模式。
+type RoutedTarget struct {
+	Pattern string
+	Group   *Group
+}
+
+// RoutedTargets 列出某个源分组所有生效路由的目标分组，供「聚合组的模型列表要包含哪些
+// 目标组的模型」使用。
+//
+// 与 ResolveEffectiveGroup 的区别：那个是按**某一个**请求模型解析出唯一落点（热路径）；
+// 这个是把**全部**路由目标摊开（模型列表这种冷路径）。
+//
+// 只看一跳：模型列表是给人/客户端看的，一跳已经覆盖「聚合组 -> 各平台组」这个实际形态；
+// 多跳链的展开留到真有这种配置时再说，避免在冷路径上引入链式递归与环检测的复杂度。
+// 目标分组不存在/已停用则跳过（列表不该因为一条坏路由整个报错）。
+func (s *GroupModelRouteService) RoutedTargets(ctx context.Context, groupID int64) ([]RoutedTarget, error) {
+	routes, err := s.routesFor(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	targets := make([]RoutedTarget, 0, len(routes))
+	for _, r := range routes {
+		if r == nil || !r.Enabled {
+			continue
+		}
+		target, err := s.groupRepo.GetByID(ctx, r.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if target == nil || target.Status != StatusActive {
+			continue
+		}
+		targets = append(targets, RoutedTarget{Pattern: r.ModelPattern, Group: target})
+	}
+	return targets, nil
+}
+
+// MatchesPattern 报告模型名是否命中该路由的模式，供调用方筛目标分组的模型列表。
+func (t RoutedTarget) MatchesPattern(model string) bool {
+	return matchModelPattern(t.Pattern, model)
+}
+
 // ListByGroupID 获取某个源分组的全部路由规则
 func (s *GroupModelRouteService) ListByGroupID(ctx context.Context, groupID int64) ([]*model.GroupModelRoute, error) {
 	return s.repo.ListByGroupID(ctx, groupID)
