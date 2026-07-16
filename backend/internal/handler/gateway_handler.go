@@ -1235,12 +1235,12 @@ func mergeModelIDs(primary, secondary []string) []string {
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
-// routedModels 返回该分组经跨组路由能触达的模型：逐条路由取目标分组自己的可用模型，
+// routedModels 返回该分组经跨组路由能触达的模型：逐条路由取目标分组的可用模型，
 // 再用该路由的模式筛一遍。
 //
 // 用「目标组真实可用的模型 ∩ 路由模式」而不是直接展开模式：模式是 gpt-*，但目标组
-// 到底有没有 gpt-5.6、有没有 codex-auto-review，只有目标组的账号配置说了算。这样
-// 列表永远跟真实可调的一致，不会列出调不到的型号。
+// 到底有没有 gpt-5.6、有没有 codex-auto-review，只有目标组的配置说了算。这样列表
+// 永远跟真实可调的一致，不会列出调不到的型号。
 func (h *GatewayHandler) routedModels(c *gin.Context, groupID int64) []string {
 	if h.groupModelRouteService == nil {
 		return nil
@@ -1252,14 +1252,32 @@ func (h *GatewayHandler) routedModels(c *gin.Context, groupID int64) []string {
 
 	var out []string
 	for _, t := range targets {
-		targetID := t.Group.ID
-		for _, m := range h.gatewayService.GetAvailableModels(c.Request.Context(), &targetID, t.Group.Platform) {
+		for _, m := range h.groupModels(c, t.Group) {
 			if t.MatchesPattern(m) {
 				out = append(out, m)
 			}
 		}
 	}
 	return out
+}
+
+// groupModels 返回某个分组「实际会对外列出」的模型集合。
+//
+// 必须跟 Models handler 自己那套口径一致：GetAvailableModels 在**没有任何账号配了
+// model_mapping** 时返回 nil，语义是「用该平台的默认列表」——默认列表由调用方补。
+// 早先聚合时直接用了 GetAvailableModels 的返回，结果 anthropic/openai 组（账号都没配
+// 显式 mapping）一律取到 nil，聚合组的列表里只剩 grok（grok 账号空 mapping 会由
+// resolveModelMapping 兜成 xai.DefaultModelMapping，所以唯独它非空）——线上实测就是
+// 21 个模型全是 grok、claude 与 gpt 一个不见。
+func (h *GatewayHandler) groupModels(c *gin.Context, group *service.Group) []string {
+	if group == nil {
+		return nil
+	}
+	groupID := group.ID
+	if models := h.gatewayService.GetAvailableModels(c.Request.Context(), &groupID, group.Platform); len(models) > 0 {
+		return models
+	}
+	return defaultModelIDsForPlatform(group.Platform)
 }
 
 // dedupeStringsPreservingOrder 去重且保序：多条路由可能指向同一目标分组，同一模型会被
