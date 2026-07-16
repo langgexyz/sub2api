@@ -153,7 +153,10 @@ func TestExchangePendingOAuthCompletionPreviewThenFinalizeAppliesAdoptionDecisio
 
 	storedUser, err = client.User.Get(ctx, userEntity.ID)
 	require.NoError(t, err)
-	require.Equal(t, "Alice Example", storedUser.Username)
+	// users.username stays the provider login handle even when adopt_display_name is
+	// set — display_name is only ever adopted into auth_identities.metadata (see
+	// b09b669c "adopt_display_name 不再覆盖 users.username").
+	require.Equal(t, "legacy-name", storedUser.Username)
 
 	identity, err := client.AuthIdentity.Query().
 		Where(
