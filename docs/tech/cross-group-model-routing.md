@@ -149,20 +149,22 @@ key A (绑 group1, platform=anthropic)
 
 缓存：路由表随 group 一起进现有 group 缓存，避免每请求查库。变更走 `scheduler_outbox` 的 `full_rebuild` 事件刷新（与账号归组变更同机制）。
 
-## 6. 待拍板决策点
+## 6. 决策记录（已拍板）
 
-### D1. 计费/配额归属：源组 or 目标组
+### D1. 计费/配额归属：源组 or 目标组 —— 已定
 
-- **推荐：账单/配额算源组（group1），账号份额/容量限制算目标组（group5）。**
+**决策：账单/配额算源组（group1），账号份额/容量限制算目标组（group5）。**
+
 - 理由：授权边界跟着 key 走，用户感知一致（"我用的是我这个组的额度"）；物理资源约束在目标组那边，`CheckAccountShareLimits` 必须按实际出量的号算。
-- 风险：源组的定价表里没有 `grok-4.5` 的价怎么办 —— 需确认三定价源（LiteLLM / 渠道 DB / fallback）对跨组模型的解析路径，定价按**模型名**查而非按组查，理论上不受影响，但要实测。
+- 风险：源组的定价表里没有 `grok-4.5` 的价怎么办 —— 需确认三定价源（LiteLLM / 渠道 DB / fallback）对跨组模型的解析路径。定价按**模型名**查而非按组查，理论上不受影响，但要实测（见 8.1 A4）。
 
-### D2. 冲突优先级：路由表 vs 本组账号
+### D2. 冲突优先级：路由表 vs 本组账号 —— 已定
 
-- **推荐：路由表优先，且显式声明即拦截**，不做「本组找不到才跳」的隐式 fallback。
+**决策：路由表优先，且显式声明即拦截**，不做「本组找不到才跳」的隐式 fallback。
+
 - 理由：隐式兜底让排查变噩梦（同一个模型名有时走本组有时跳组），违反显式决策点原则。
 
-### D3.（已解决）入口方言 × 目标平台矩阵
+### D3. 入口方言 × 目标平台矩阵 —— 无需决策
 
 原以为要逐格补齐，实测四格全通（见 2.1），**原样复用，本期不改**。
 
@@ -219,8 +221,9 @@ grep 出的同 pattern 命中点，逐条定性：
 
 ## 9. 分期交付
 
-1. **P1**：表 + ent schema + `go generate ./ent` + admin CRUD + 路由表缓存。无行为变更，可独立合。
-2. **P2**：`ResolveEffectiveGroup` 中间件 + `getGroupPlatform` 改读 effective group + 解析器合并。加 `group.routing_mode enum('platform','model')` 灰度开关，默认 `platform`（老行为）。
+1. **P1**：migration + ent schema + `go generate ./ent` + repository + admin CRUD。无行为变更，可独立合。
+   > 路由表缓存原列在 P1，实施时移到 P2 —— 缓存在 P1 没有读者，是无法测试的死代码；放到 P2 与热路径一起落，才有真实的失效语义可验。
+2. **P2**：`ResolveEffectiveGroup` 中间件 + `getGroupPlatform` 改读 effective group + 解析器合并 + 路由表缓存（随 group 缓存，`scheduler_outbox` 刷新）。加 `group.routing_mode enum('platform','model')` 灰度开关，默认 `platform`（老行为）。
 3. **P3**：`admin_group.go:80` 模型聚合并入路由表目标模型 + `isGrokRequestContext` 修正 + `checkMixedChannelRisk` 补 platform 识别 + N7 报错文案。
 4. **P4**：e2e 全跑 + prod 灰度（先单组开 `routing_mode=model`）。
 
