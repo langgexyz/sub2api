@@ -851,7 +851,26 @@ func (s *GatewayService) resolveGatewayGroup(ctx context.Context, groupID *int64
 		return nil, nil, nil
 	}
 
-	currentID := *groupID
+	// 跨组模型路由（issue #82）：middleware.ResolveEffectiveGroup 已按请求模型解析出
+	// 目标分组并写进 ctx，这里改从目标分组起算。
+	//
+	// 为什么切在这一处：所有选号入口（SelectAccountForModelWithExclusions、
+	// SelectAccountWithLoadAwareness -> checkClaudeCodeRestriction）都汇流到本函数，
+	// 在这里换起点等于让全部调用点自动跟随，handler 一行不用改。
+	//
+	// 计费不受影响：计费走 apiKey.GroupID（源分组），根本不经过本函数 —— 这正是
+	// D1「账单算源组、份额算目标组」在实现上天然成立的原因，不需要额外做事。
+	if effectiveID, ok := ctx.Value(ctxkey.EffectiveGroupID).(int64); ok && effectiveID > 0 {
+		currentID := effectiveID
+		return s.resolveGatewayGroupFrom(ctx, currentID)
+	}
+
+	return s.resolveGatewayGroupFrom(ctx, *groupID)
+}
+
+// resolveGatewayGroupFrom 从指定分组起算 fallback 链（claude_code_only 降级），带环检测。
+func (s *GatewayService) resolveGatewayGroupFrom(ctx context.Context, startID int64) (*Group, *int64, error) {
+	currentID := startID
 	visited := map[int64]struct{}{}
 	for {
 		if _, seen := visited[currentID]; seen {
