@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/groupmodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
@@ -1097,6 +1098,43 @@ func init() {
 	groupDescRpmLimit := groupFields[45].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
+	groupmodelrouteMixin := schema.GroupModelRoute{}.Mixin()
+	groupmodelrouteMixinFields0 := groupmodelrouteMixin[0].Fields()
+	_ = groupmodelrouteMixinFields0
+	groupmodelrouteFields := schema.GroupModelRoute{}.Fields()
+	_ = groupmodelrouteFields
+	// groupmodelrouteDescCreatedAt is the schema descriptor for created_at field.
+	groupmodelrouteDescCreatedAt := groupmodelrouteMixinFields0[0].Descriptor()
+	// groupmodelroute.DefaultCreatedAt holds the default value on creation for the created_at field.
+	groupmodelroute.DefaultCreatedAt = groupmodelrouteDescCreatedAt.Default.(func() time.Time)
+	// groupmodelrouteDescUpdatedAt is the schema descriptor for updated_at field.
+	groupmodelrouteDescUpdatedAt := groupmodelrouteMixinFields0[1].Descriptor()
+	// groupmodelroute.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	groupmodelroute.DefaultUpdatedAt = groupmodelrouteDescUpdatedAt.Default.(func() time.Time)
+	// groupmodelroute.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	groupmodelroute.UpdateDefaultUpdatedAt = groupmodelrouteDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// groupmodelrouteDescModelPattern is the schema descriptor for model_pattern field.
+	groupmodelrouteDescModelPattern := groupmodelrouteFields[1].Descriptor()
+	// groupmodelroute.ModelPatternValidator is a validator for the "model_pattern" field. It is called by the builders before save.
+	groupmodelroute.ModelPatternValidator = func() func(string) error {
+		validators := groupmodelrouteDescModelPattern.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(model_pattern string) error {
+			for _, fn := range fns {
+				if err := fn(model_pattern); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// groupmodelrouteDescEnabled is the schema descriptor for enabled field.
+	groupmodelrouteDescEnabled := groupmodelrouteFields[3].Descriptor()
+	// groupmodelroute.DefaultEnabled holds the default value on creation for the enabled field.
+	groupmodelroute.DefaultEnabled = groupmodelrouteDescEnabled.Default.(bool)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0

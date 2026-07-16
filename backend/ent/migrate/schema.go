@@ -921,6 +921,34 @@ var (
 			},
 		},
 	}
+	// GroupModelRoutesColumns holds the columns for the "group_model_routes" table.
+	GroupModelRoutesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "group_id", Type: field.TypeInt64},
+		{Name: "model_pattern", Type: field.TypeString, Size: 200},
+		{Name: "target_group_id", Type: field.TypeInt64},
+		{Name: "enabled", Type: field.TypeBool, Default: true},
+	}
+	// GroupModelRoutesTable holds the schema information for the "group_model_routes" table.
+	GroupModelRoutesTable = &schema.Table{
+		Name:       "group_model_routes",
+		Columns:    GroupModelRoutesColumns,
+		PrimaryKey: []*schema.Column{GroupModelRoutesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "groupmodelroute_group_id_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{GroupModelRoutesColumns[3], GroupModelRoutesColumns[6]},
+			},
+			{
+				Name:    "groupmodelroute_group_id_model_pattern",
+				Unique:  true,
+				Columns: []*schema.Column{GroupModelRoutesColumns[3], GroupModelRoutesColumns[4]},
+			},
+		},
+	}
 	// IdempotencyRecordsColumns holds the columns for the "idempotency_records" table.
 	IdempotencyRecordsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2005,6 +2033,7 @@ var (
 		ChannelMonitorRequestTemplatesTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
+		GroupModelRoutesTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
 		PaymentAuditLogsTable,
@@ -2091,6 +2120,9 @@ func init() {
 	}
 	GroupsTable.Annotation = &entsql.Annotation{
 		Table: "groups",
+	}
+	GroupModelRoutesTable.Annotation = &entsql.Annotation{
+		Table: "group_model_routes",
 	}
 	IdempotencyRecordsTable.Annotation = &entsql.Annotation{
 		Table: "idempotency_records",
