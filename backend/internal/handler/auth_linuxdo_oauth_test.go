@@ -934,7 +934,10 @@ func TestCompleteLinuxDoOAuthRegistrationAppliesPendingAdoptionDecision(t *testi
 		Where(dbuser.EmailEQ(session.ResolvedEmail)).
 		Only(ctx)
 	require.NoError(t, err)
-	require.Equal(t, "LinuxDo Display", userEntity.Username)
+	// users.username stays the provider login handle even when adopt_display_name is
+	// set — display_name is only ever adopted into auth_identities.metadata (see
+	// b09b669c "adopt_display_name 不再覆盖 users.username").
+	require.Equal(t, "linuxdo_user", userEntity.Username)
 
 	identity, err := client.AuthIdentity.Query().
 		Where(
