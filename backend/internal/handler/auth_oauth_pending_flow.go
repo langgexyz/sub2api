@@ -1202,8 +1202,6 @@ func applyPendingOAuthBindingTx(
 		}
 	}
 
-
-
 	identity, err := ensurePendingOAuthIdentityForUser(ctx, tx, session, targetUserID)
 	if err != nil {
 		return err
