@@ -39,6 +39,7 @@ var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
 	gatewayService            *service.GatewayService
+	groupModelRouteService    *service.GroupModelRouteService
 	geminiCompatService       *service.GeminiMessagesCompatService
 	antigravityGatewayService *service.AntigravityGatewayService
 	userService               *service.UserService
@@ -59,6 +60,7 @@ type GatewayHandler struct {
 // NewGatewayHandler creates a new GatewayHandler
 func NewGatewayHandler(
 	gatewayService *service.GatewayService,
+	groupModelRouteService *service.GroupModelRouteService,
 	geminiCompatService *service.GeminiMessagesCompatService,
 	antigravityGatewayService *service.AntigravityGatewayService,
 	userService *service.UserService,
@@ -99,6 +101,7 @@ func NewGatewayHandler(
 
 	return &GatewayHandler{
 		gatewayService:            gatewayService,
+		groupModelRouteService:    groupModelRouteService,
 		geminiCompatService:       geminiCompatService,
 		antigravityGatewayService: antigravityGatewayService,
 		userService:               userService,
@@ -1020,6 +1023,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+
+	// 跨组模型路由（issue #82）：把路由目标分组的模型并进来。
+	//
+	// 没有这一步，聚合组（自己不挂账号、只声明路由）的模型列表会是空的 —— 明明
+	// gpt-5.5 / grok-4.5 都调得通，客户端的模型下拉里却一个都看不到。
+	if groupID != nil {
+		availableModels = append(availableModels, h.routedModels(c, *groupID)...)
+		availableModels = dedupeStringsPreservingOrder(availableModels)
+	}
+
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
@@ -1222,6 +1235,51 @@ func mergeModelIDs(primary, secondary []string) []string {
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
+// routedModels 返回该分组经跨组路由能触达的模型：逐条路由取目标分组自己的可用模型，
+// 再用该路由的模式筛一遍。
+//
+// 用「目标组真实可用的模型 ∩ 路由模式」而不是直接展开模式：模式是 gpt-*，但目标组
+// 到底有没有 gpt-5.6、有没有 codex-auto-review，只有目标组的账号配置说了算。这样
+// 列表永远跟真实可调的一致，不会列出调不到的型号。
+func (h *GatewayHandler) routedModels(c *gin.Context, groupID int64) []string {
+	if h.groupModelRouteService == nil {
+		return nil
+	}
+	targets, err := h.groupModelRouteService.RoutedTargets(c.Request.Context(), groupID)
+	if err != nil || len(targets) == 0 {
+		return nil
+	}
+
+	var out []string
+	for _, t := range targets {
+		targetID := t.Group.ID
+		for _, m := range h.gatewayService.GetAvailableModels(c.Request.Context(), &targetID, t.Group.Platform) {
+			if t.MatchesPattern(m) {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
+}
+
+// dedupeStringsPreservingOrder 去重且保序：多条路由可能指向同一目标分组，同一模型会被
+// 收集多次；保序是为了让自有模型仍排在路由来的模型前面。
+func dedupeStringsPreservingOrder(in []string) []string {
+	if len(in) == 0 {
+		return in
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
