@@ -191,6 +191,33 @@ grep 出的同 pattern 命中点，逐条定性：
 
 **关键：`isGrokRequestContext` 这处最容易漏。** 它从 `apiKey.Group` 读而非 effective group，跨组路由后会静默不注入 grok 的租户隔离 `prompt_cache_key`，表现是缓存串租户 —— 不报错，只是错。
 
+### 7.1 上表漏掉的三处（P2 部署后真调才炸出来）
+
+上面这张表是靠 grep + 阅读列出来的，**漏了三处**，全部要 prod 真调一次才暴露。记录在此，因为漏掉它们的原因是同一个认知错误：
+
+| 位置 | 症状 | 修在 |
+|---|---|---|
+| `handler/openai_gateway_handler.go` `allowOpenAICompatibleMessagesDispatch` | 按**源组**判 `AllowMessagesDispatch`，把已路由成功的请求挡在门外：`This group does not allow /v1/messages dispatch` | PR #90 |
+| 同文件 `openAICompatibleRequestPlatform` | 按源组判平台 → 跨组时按 OpenAI 协议转换后发给 xAI 上游（不报 403，坏得更隐蔽） | PR #90 |
+| `service/openai_account_scheduler.go` `selectAccountWithScheduler` | 仍在源组里找 grok 账号 → `no available accounts` | PR #91 |
+
+**共同的认知错误**：本设计假定「`resolveGatewayGroup` 是所有选号入口的唯一汇流点」。
+
+**事实是网关有两套彼此独立的协议栈与调度器**：
+
+```
+GatewayService        (原生 Anthropic / Gemini)  -> resolveGatewayGroup 汇流
+OpenAIGatewayService  (OpenAI 兼容，含 grok)      -> selectAccountWithScheduler 自成一路
+```
+
+grok 走的恰恰是后者。所以「唯一汇流点」的判断只对前者成立 —— **抽样验证了两个入口就下的结论，实际有第三套**。
+
+教训（对后续任何改动同样适用）：
+
+1. 这个仓库里「唯一入口 / 唯一汇流点」的判断**必须穷举验证**（`grep -rn "^func (s \*XxxService) Select"` 把对外入口全列出来，再逐个追到底），不能抽样。
+2. `apiKey.Group` 与「有效分组」的分歧点散布在 handler 与两个 service 层，**unit 测不出来** —— 它们要真请求走完整链路才碰得到。功能是否真通，只有 prod（或等价真环境）真调才算数。
+3. 现已抽出公共的 `service.EffectiveGroupIDForScheduling(ctx, groupID)` 与 `handler.effectiveGroupPlatform(c, apiKey)`，两套栈共用；**新增任何选号/协议判定入口时应复用它们**，不要再各写一份。
+
 ## 8. 测试计划（实施前锁定，不事后现编）
 
 ### 8.1 验收用例（D 决策每分支一条）
@@ -231,6 +258,30 @@ grep 出的同 pattern 命中点，逐条定性：
 2. **P2**：`ResolveEffectiveGroup` 中间件 + `getGroupPlatform` 改读 effective group + 解析器合并 + 路由表缓存（随 group 缓存，`scheduler_outbox` 刷新）。加 `group.routing_mode enum('platform','model')` 灰度开关，默认 `platform`（老行为）。
 3. **P3**：`admin_group.go:80` 模型聚合并入路由表目标模型 + `isGrokRequestContext` 修正 + `checkMixedChannelRisk` 补 platform 识别 + N7 报错文案。
 4. **P4**：e2e 全跑 + prod 灰度（先单组开 `routing_mode=model`）。
+
+## 9.1 上线实测（2026-07-16，prod ccdirect.dev）
+
+P1 + P2 + PR #90/#91 两处修复上线后的真实验证，非推断：
+
+prod 配置：group1 `Anthropic`(anthropic) / group5 `Grok`(grok，6 个 oauth 账号)；
+路由规则 `group_model_routes(group_id=1, model_pattern='grok-4.5', target_group_id=5)`。
+测试用 key id=8，绑 group1。
+
+| 用例 | 请求 | 实测结果 |
+|---|---|---|
+| A1 | `POST /v1/messages` model=`grok-4.5`（Anthropic 方言） | 200，`"I am Grok, an AI model built by xAI."` |
+| A2 | `POST /v1/chat/completions` model=`grok-4.5`（OpenAI 方言） | 200，`"I am Grok 4, built by xAI."` |
+| A3 | `POST /v1/messages` model=`claude-sonnet-4-5-*`（回归） | 200，`"I'm Claude ... Anthropic's AI assistant."`，未被路由抢走 |
+
+D1（账单算源组、账号取目标组）实测 `usage_logs`：
+
+```
+claude-sonnet-4-5-20250929 | group=1 | acct=12   <- anthropic 账号
+grok-4.5                   | group=1 | acct=16   <- group5 的 grok 账号
+grok-4.5                   | group=1 | acct=14   <- 另一个 grok 账号，负载分散生效
+```
+
+计费一律记源组 group1，账号来自目标组 group5 —— 与 D1 一致。
 
 ## 10. 回滚
 
