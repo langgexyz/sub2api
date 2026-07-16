@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
 )
@@ -24,17 +27,78 @@ type GroupModelRouteRepository interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// routeCacheTTL 路由表本地缓存的存活时间。
+//
+// 取 30s 的依据：路由规则是「配好就不动」的配置，而 ResolveEffectiveGroup 挂在**每个**
+// 网关请求上——不缓存就等于为了服务不到 1% 的请求给 100% 的流量加一次查库。
+// 30s 是「admin 改完最迟多久生效」与「热路径查库频率」的折中：急停（enabled=false）
+// 最迟 30s 生效，而稳态下每组每 30s 才查一次库。
+// 注意：admin 经本 service 改动会立即失效本地缓存，30s 只是多实例部署时的兜底上限。
+const routeCacheTTL = 30 * time.Second
+
+type routeCacheEntry struct {
+	routes    []*model.GroupModelRoute
+	expiresAt time.Time
+}
+
+// routeGroupLookup 是本 service 对分组仓库的**最小**依赖：只需要按 ID 取分组。
+//
+// 刻意不直接吃 GroupRepository 大接口：一是本 service 确实只用这一个方法，二是收窄后
+// 测试里造个假实现只要写一个方法，而不是为了测解析逻辑去实现二十个用不到的方法。
+// GroupRepository 天然满足本接口，wire 注入不受影响。
+type routeGroupLookup interface {
+	GetByID(ctx context.Context, id int64) (*Group, error)
+}
+
 // GroupModelRouteService 跨组模型路由规则服务
 //
-// 职责边界：本服务只管规则的 CRUD 与解析语义（给定规则集 + 模型名 -> 目标分组）。
-// 把解析结果接进请求链路是 P2 的事，P1 不改任何热路径行为。
+// 职责边界：规则 CRUD + 解析语义（模型名 -> 目标分组）+ 热路径缓存。
 type GroupModelRouteService struct {
 	repo      GroupModelRouteRepository
-	groupRepo GroupRepository
+	groupRepo routeGroupLookup
+
+	// 按源分组缓存路由表，挡住热路径的重复查库。
+	cache   map[int64]routeCacheEntry
+	cacheMu sync.RWMutex
 }
 
 func NewGroupModelRouteService(repo GroupModelRouteRepository, groupRepo GroupRepository) *GroupModelRouteService {
-	return &GroupModelRouteService{repo: repo, groupRepo: groupRepo}
+	return &GroupModelRouteService{
+		repo:      repo,
+		groupRepo: groupRepo,
+		cache:     make(map[int64]routeCacheEntry),
+	}
+}
+
+// routesFor 取某个源分组的路由表，优先走本地缓存。
+func (s *GroupModelRouteService) routesFor(ctx context.Context, groupID int64) ([]*model.GroupModelRoute, error) {
+	s.cacheMu.RLock()
+	entry, ok := s.cache[groupID]
+	s.cacheMu.RUnlock()
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.routes, nil
+	}
+
+	routes, err := s.repo.ListByGroupID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.cacheMu.Lock()
+	s.cache[groupID] = routeCacheEntry{routes: routes, expiresAt: time.Now().Add(routeCacheTTL)}
+	s.cacheMu.Unlock()
+	return routes, nil
+}
+
+// invalidateCache 清空本地路由缓存。
+//
+// 全清而非按 groupID 清：一次 admin 写可能同时影响源组与目标组（改 target_group_id
+// 就跨了两个组），且路由表规模很小，全清的代价是下次请求多查一次库，比"精确清漏了
+// 一个组导致规则不生效"划算得多。
+func (s *GroupModelRouteService) invalidateCache() {
+	s.cacheMu.Lock()
+	s.cache = make(map[int64]routeCacheEntry)
+	s.cacheMu.Unlock()
 }
 
 // ResolveRoute 在规则集中挑出请求模型命中的那条规则，无命中返回 nil。
@@ -76,6 +140,67 @@ func patternSpecificity(pattern string) int {
 	return len(pattern) + 1
 }
 
+// ErrRouteTargetUnavailable 跨组路由命中了，但目标分组不可用（不存在 / 已停用）。
+//
+// 刻意不静默回落源分组：路由是显式声明，声明了就该生效；目标坏了要让人看见，
+// 而不是"悄悄用源组的号顶上"——那会让 grok-4.5 的请求静静地被 Claude 账号接走。
+var ErrRouteTargetUnavailable = errors.New("cross-group route target is unavailable")
+
+// ErrRouteCycle 跨组路由成环（A -> B -> A）。
+var ErrRouteCycle = errors.New("cross-group route cycle detected")
+
+// maxRouteHops 跨组路由的最大跳数。环检测已经挡住了成环，这个上限挡的是
+// 「没成环但链过长」的病态配置（A->B->C->...），避免热路径为一次请求查十几次库。
+const maxRouteHops = 4
+
+// ResolveEffectiveGroup 按请求模型解析出该请求实际应该落到哪个分组。
+//
+// 返回 (nil, nil) 表示没有路由命中 —— 调用方应留在源分组，这是绝大多数请求的路径。
+//
+// 支持链式跳转（A 的 grok-4.5 -> B，B 的 grok-4.5 -> C），带 visited 环检测，
+// 语义与 resolveGatewayGroup 的 fallback 链一致。
+func (s *GroupModelRouteService) ResolveEffectiveGroup(ctx context.Context, sourceGroupID int64, requestedModel string) (*Group, error) {
+	if requestedModel == "" {
+		return nil, nil
+	}
+
+	visited := map[int64]struct{}{sourceGroupID: {}}
+	currentID := sourceGroupID
+	var resolved *Group
+
+	for hop := 0; hop < maxRouteHops; hop++ {
+		routes, err := s.routesFor(ctx, currentID)
+		if err != nil {
+			return nil, err
+		}
+		hit := ResolveRoute(routes, requestedModel)
+		if hit == nil {
+			return resolved, nil
+		}
+
+		if _, seen := visited[hit.TargetGroupID]; seen {
+			return nil, fmt.Errorf("%w: group %d revisited via model %q", ErrRouteCycle, hit.TargetGroupID, requestedModel)
+		}
+		visited[hit.TargetGroupID] = struct{}{}
+
+		target, err := s.groupRepo.GetByID(ctx, hit.TargetGroupID)
+		if err != nil {
+			return nil, err
+		}
+		if target == nil {
+			return nil, fmt.Errorf("%w: route %d points at group %d which does not exist", ErrRouteTargetUnavailable, hit.ID, hit.TargetGroupID)
+		}
+		if target.Status != StatusActive {
+			return nil, fmt.Errorf("%w: route %d points at group %d whose status is %q", ErrRouteTargetUnavailable, hit.ID, hit.TargetGroupID, target.Status)
+		}
+
+		resolved = target
+		currentID = target.ID
+	}
+
+	return nil, fmt.Errorf("%w: exceeded %d hops from group %d via model %q", ErrRouteCycle, maxRouteHops, sourceGroupID, requestedModel)
+}
+
 // ListByGroupID 获取某个源分组的全部路由规则
 func (s *GroupModelRouteService) ListByGroupID(ctx context.Context, groupID int64) ([]*model.GroupModelRoute, error) {
 	return s.repo.ListByGroupID(ctx, groupID)
@@ -96,7 +221,12 @@ func (s *GroupModelRouteService) Create(ctx context.Context, route *model.GroupM
 	if err := s.validate(ctx, route); err != nil {
 		return nil, err
 	}
-	return s.repo.Create(ctx, route)
+	created, err := s.repo.Create(ctx, route)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateCache()
+	return created, nil
 }
 
 // Update 更新规则，写入前做完整校验
@@ -104,12 +234,21 @@ func (s *GroupModelRouteService) Update(ctx context.Context, route *model.GroupM
 	if err := s.validate(ctx, route); err != nil {
 		return nil, err
 	}
-	return s.repo.Update(ctx, route)
+	updated, err := s.repo.Update(ctx, route)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateCache()
+	return updated, nil
 }
 
 // Delete 删除规则
 func (s *GroupModelRouteService) Delete(ctx context.Context, id int64) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.invalidateCache()
+	return nil
 }
 
 // validate 校验规则的自洽性与引用有效性。

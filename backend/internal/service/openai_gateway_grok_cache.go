@@ -8,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 const (
@@ -84,6 +86,12 @@ func isGrokRequestContext(c *gin.Context) bool {
 		return false
 	}
 	apiKey, ok := v.(*APIKey)
+	if effectivePlatform, hit := c.Request.Context().Value(ctxkey.EffectiveGroupPlatform).(string); hit {
+		// 跨组路由命中时以目标分组的平台为准：key 绑在 anthropic 组但路由到 grok 组的
+		// 请求，同样需要注入 grok 的租户隔离 prompt_cache_key。漏掉这里不会报错，
+		// 只会让缓存串租户 —— 属于"不报错只是错"的那类，见 #82 的 blast radius。
+		return effectivePlatform == PlatformGrok
+	}
 	return ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == PlatformGrok
 }
 

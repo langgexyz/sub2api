@@ -28,6 +28,15 @@ const (
 
 	// AccountSwitchCount 表示请求过程中发生的账号切换次数
 	AccountSwitchCount Key = "ctx_account_switch_count"
+	// EffectiveGroupID 跨组模型路由命中后的目标分组 ID，由 middleware.ResolveEffectiveGroup 设置。
+	//
+	// 语义：只影响「协议选择 + 选号」，**不影响计费**。计费/配额继续走 apiKey.GroupID
+	// （源分组），因为授权边界跟着 key 走。见 docs/tech/cross-group-model-routing.md 的 D1。
+	// 未命中路由时不设置，下游一律回落 apiKey.GroupID。
+	EffectiveGroupID Key = "ctx_effective_group_id"
+	// EffectiveGroupPlatform 跨组路由命中后的目标分组平台，供入口协议路由使用。
+	// 与 EffectiveGroupID 同时设置，避免协议分支为了拿 platform 再查一次库。
+	EffectiveGroupPlatform Key = "ctx_effective_group_platform"
 
 	// IsClaudeCodeClient 标识当前请求是否来自 Claude Code 客户端
 	IsClaudeCodeClient Key = "ctx_is_claude_code_client"
