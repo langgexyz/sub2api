@@ -128,13 +128,18 @@ key A (绑 group1, platform=anthropic)
 | `group_id` | bigint | 源组（key 绑的组） |
 | `model_pattern` | varchar(200) | 模型名或通配符，复用 `ResolveMappedModel` 的最长优先匹配语义（`service/account.go:788`） |
 | `target_group_id` | bigint | 目标组 |
-| `priority` | int | 同 pattern 多条时的顺序，默认 50（对齐 `account_groups.priority` 约定） |
 | `enabled` | bool | 灰度/急停开关 |
 | `created_at` / `updated_at` | timestamptz | |
 
 索引：`(group_id, enabled)`；唯一约束 `(group_id, model_pattern)`。
 
+> **没有 `priority` 列**（草案曾列过，P1 实施时删除）：匹配语义定为「最长优先」后，受 `(group_id, model_pattern)` 唯一约束，同一组内两条不同模式**不可能**对同一模型产生相同具体度（两个不同的等长字符串不可能同时是同一个串的前缀），priority 参与的决相分支永远走不到。留一个能设置却不生效的旋钮只会误导 admin。决相退化为 ID 比较（纯兜底，保证唯一约束未来若放宽结果仍不依赖遍历顺序）；列表排序用 `(group_id, model_pattern, id)`。
+
 **为什么用独立表而非 group 的 JSONB 列**：可索引、可 admin CRUD、可审计、可单条灰度。JSONB 列在多组路由规模上会退化成全表反序列化。
+
+**与既有 `groups.model_routing` 的关系**（P1 调研补记）：`group` 上早有 `model_routing` JSONB（`模型模式 -> 优先账号ID列表`，migration 040/041，消费者 `service/group.go:171` `GetRoutingAccountIDs`）。两者**正交两级**，不是重复：本表管「选组」，`model_routing` 管「组内选账号」，跨组先跑。已验证 `model_routing` 逃不出 platform 过滤（它只把账号排前，最终仍在 `listSchedulableAccounts` 的 platform 结果里筛），因此替代不了跨组路由。冲突场景（源组的 `model_routing` 与本表同时命中同一模型）按 D2 跨组优先，`model_routing` 那条永远死 —— 属配置错误，admin 层应校验告警。
+
+> 顺带记录一个既有缺陷（不在本设计范围，另起 issue）：`GetRoutingAccountIDs`（`service/group.go:182`）直接 `range` map 且首个命中即返回，多个 pattern 同时命中时（如 `claude-*` 与 `claude-opus-*`）Go map 迭代序随机，选中的账号每次可能不同。本表不受影响（唯一索引 + 最长优先 + ID 兜底，结果确定）。
 
 ## 5. 解析流程
 
