@@ -121,16 +121,20 @@ func (r *ccSessionLogReadRepository) GetSessionRows(ctx context.Context, session
 	return out, rows.Err()
 }
 
+// ccSearchScanCap 限制一次检索最多解码多少行原文。convert_from+ILIKE 对 BYTEA
+// 无索引可用，扫描成本 ∝ 行数×体积（原文行均约 0.7MB），无上限时 GB 级表必超时。
+// 命中该顶时偏向最新数据（内层按时间倒序取行），更早历史用 from/to 分段查。
+const ccSearchScanCap = 500
+
 func (r *ccSessionLogReadRepository) SearchPrompts(ctx context.Context, q service.CCPromptSearchQuery) ([]service.CCPromptHit, error) {
 	ctx, cancel := context.WithTimeout(ctx, ccReadQueryTimeout)
 	defer cancel()
 
+	// 便宜的过滤条件全部下推到内层（走列/索引），昂贵的 convert_from+ILIKE
+	// 只作用在内层裁剪后的行上。
 	var where []string
 	var args []any
 	where = append(where, "session_hash IS NOT NULL")
-	// 转义 LIKE 元字符，避免用户输入当通配。
-	args = append(args, "%"+escapeLike(q.Query)+"%")
-	where = append(where, "convert_from(request_body, 'UTF8') ILIKE $"+strconv.Itoa(len(args))+" ESCAPE '\\'")
 	if q.UserID != nil {
 		args = append(args, *q.UserID)
 		where = append(where, "user_id = $"+strconv.Itoa(len(args)))
@@ -143,13 +147,23 @@ func (r *ccSessionLogReadRepository) SearchPrompts(ctx context.Context, q servic
 		args = append(args, *q.To)
 		where = append(where, "created_at <= $"+strconv.Itoa(len(args)))
 	}
+
+	// 转义 LIKE 元字符，避免用户输入当通配。
+	args = append(args, "%"+escapeLike(q.Query)+"%")
+	patternPos := strconv.Itoa(len(args))
 	args = append(args, q.Limit)
 	limitPos := strconv.Itoa(len(args))
 
 	query := `
 		SELECT session_hash, user_id, created_at, request_body
-		FROM request_response_logs
-		WHERE ` + strings.Join(where, " AND ") + `
+		FROM (
+			SELECT session_hash, user_id, created_at, request_body
+			FROM request_response_logs
+			WHERE ` + strings.Join(where, " AND ") + `
+			ORDER BY created_at DESC
+			LIMIT ` + strconv.Itoa(ccSearchScanCap) + `
+		) recent
+		WHERE convert_from(request_body, 'UTF8') ILIKE $` + patternPos + ` ESCAPE '\'
 		ORDER BY created_at ASC
 		LIMIT $` + limitPos
 

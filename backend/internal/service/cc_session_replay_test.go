@@ -2,7 +2,11 @@
 
 package service
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
 
 // 模拟真实 6e2b5cfe 会话的结构：第1条只有首个 user 提问；第2条带上完整历史
 // （含第1条的 assistant 回复 + tool_result + system-reminder 噪音 + 第2个 user 提问）；
@@ -206,5 +210,49 @@ func TestNormalizeSession_Empty(t *testing.T) {
 	r := NormalizeSession("x", nil)
 	if len(r.Turns) != 0 || r.RequestCount != 0 {
 		t.Errorf("empty session should yield no turns: %+v", r)
+	}
+}
+
+// stubCCRepo 捕获 SearchPrompts 收到的 query，供断言 service 层默认值。
+type stubCCRepo struct {
+	gotSearch CCPromptSearchQuery
+}
+
+func (s *stubCCRepo) ListSessions(_ context.Context, _ CCSessionListQuery) ([]CCSessionSummary, error) {
+	return nil, nil
+}
+
+func (s *stubCCRepo) GetSessionRows(_ context.Context, _ string) ([]CCSessionLogRow, error) {
+	return nil, nil
+}
+
+func (s *stubCCRepo) SearchPrompts(_ context.Context, q CCPromptSearchQuery) ([]CCPromptHit, error) {
+	s.gotSearch = q
+	return nil, nil
+}
+
+func TestSearchPromptsDefaultsFromWindow(t *testing.T) {
+	repo := &stubCCRepo{}
+	svc := NewCCSessionReplayService(repo)
+
+	// 不传 from：默认限定最近一窗，防 GB 级原文表无界扫描超时。
+	if _, err := svc.SearchPrompts(context.Background(), CCPromptSearchQuery{Query: "x"}); err != nil {
+		t.Fatalf("SearchPrompts: %v", err)
+	}
+	if repo.gotSearch.From == nil {
+		t.Fatal("expected default From window, got nil")
+	}
+	wantFrom := time.Now().Add(-ccSearchDefaultWindow)
+	if d := repo.gotSearch.From.Sub(wantFrom); d < -time.Minute || d > time.Minute {
+		t.Fatalf("default From = %v, want ~%v", repo.gotSearch.From, wantFrom)
+	}
+
+	// 显式传 from：原样透传，允许查更早历史。
+	explicit := time.Date(2026, 6, 16, 0, 0, 0, 0, time.UTC)
+	if _, err := svc.SearchPrompts(context.Background(), CCPromptSearchQuery{Query: "x", From: &explicit}); err != nil {
+		t.Fatalf("SearchPrompts explicit: %v", err)
+	}
+	if repo.gotSearch.From == nil || !repo.gotSearch.From.Equal(explicit) {
+		t.Fatalf("explicit From = %v, want %v", repo.gotSearch.From, explicit)
 	}
 }

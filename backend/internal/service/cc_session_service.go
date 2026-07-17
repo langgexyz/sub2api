@@ -96,10 +96,19 @@ func (s *CCSessionReplayService) GetPrompts(ctx context.Context, sessionHash str
 	return ExtractPrompts(replay), nil
 }
 
+// ccSearchDefaultWindow 是未显式给 from 时的检索时间窗。原文表按 BYTEA 全文
+// ILIKE 无索引可用，GB 级数据上无界检索必然超时（prod 实测 15s 被取消）；
+// 默认只搜最近一窗，更早的历史要求调用方显式传 from/to 分段查。
+const ccSearchDefaultWindow = 7 * 24 * time.Hour
+
 // SearchPrompts 跨会话检索。
 func (s *CCSessionReplayService) SearchPrompts(ctx context.Context, q CCPromptSearchQuery) ([]CCPromptHit, error) {
 	if q.Limit <= 0 || q.Limit > 200 {
 		q.Limit = ccDefaultListLimit
+	}
+	if q.From == nil {
+		from := time.Now().Add(-ccSearchDefaultWindow)
+		q.From = &from
 	}
 	return s.repo.SearchPrompts(ctx, q)
 }
