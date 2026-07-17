@@ -23,9 +23,9 @@
 
 ## 保留策略（与检索共生的决策）
 
-`ops.cleanup.request_response_log_retention_days`：**本表 0 = 永不清理（默认）**，与其他 retention 键的 0=TRUNCATE 语义不同（映射函数 `requestResponseLogPlanDays`，注释里有 why）。原文日志是回放/历史分析的唯一数据源，按 TTL 删历史必须是显式运维决策。prod 通过 `~/ccdirect.env` 显式声明 0（deploy.sh `--env-file` 挂载）。
+`ops.cleanup.request_response_log_retention_days`：**本表 0 = 永不清理（代码默认）**，与其他 retention 键的 0=TRUNCATE 语义不同（映射函数 `requestResponseLogPlanDays`，注释里有 why）。原文日志是回放/历史分析的唯一数据源，按 TTL 删历史必须是显式运维决策。
 
-磁盘账（2026-07-17）：表 5.6GB / 月增约 5.6GB / 盘余 11GB——约 2026-09 前需在「加盘 / 开 TTL / 归档后删」间拍板。
+**prod 现行策略 = 30 天 TTL**（2026-07-17 拍板：控磁盘优先、不归档；`~/ccdirect.env` 显式声明，deploy.sh `--env-file` 挂载）。每日 02:00 删 30 天前的行；表稳态约 5.6GB（盘 40G/余 11G 的账下可长期运行）。删除释放的空间由 vacuum 复用、文件不缩，稳态即「不再增长」。回放/检索因此只覆盖最近 30 天。
 
 ## 运维备忘
 
