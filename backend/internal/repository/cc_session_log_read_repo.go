@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -234,6 +235,11 @@ func matchExcerpt(text, query string) string {
 	start := idx - 40
 	if start < 0 {
 		start = 0
+	}
+	// idx-40 是字节偏移，可能落在多字节 rune 中间（切出 U+FFFD 乱码开头）；
+	// 回退到 rune 起始字节再切。
+	for start > 0 && !utf8.RuneStart(flat[start]) {
+		start--
 	}
 	seg := flat[start:]
 	return truncateRunes(seg, 160)
