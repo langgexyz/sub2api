@@ -297,6 +297,8 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 	effective := s.snapshotEffective()
 	now := time.Now().UTC()
 
+	rrlRetention := requestResponseLogPlanDays(effective.RequestResponseLogRetentionDays)
+
 	targets := []opsCleanupTarget{
 		{effective.ErrorLogRetentionDays, "ops_error_logs", "created_at", false, &out.errorLogs},
 		{effective.ErrorLogRetentionDays, "ops_alert_events", "created_at", false, &out.alertEvents},
@@ -305,7 +307,7 @@ func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDelet
 		{effective.MinuteMetricsRetentionDays, "ops_system_metrics", "created_at", false, &out.systemMetrics},
 		{effective.HourlyMetricsRetentionDays, "ops_metrics_hourly", "bucket_start", false, &out.hourlyPreagg},
 		{effective.HourlyMetricsRetentionDays, "ops_metrics_daily", "bucket_date", true, &out.dailyPreagg},
-		{effective.RequestResponseLogRetentionDays, "request_response_logs", "created_at", false, &out.requestResponseLogs},
+		{rrlRetention, "request_response_logs", "created_at", false, &out.requestResponseLogs},
 	}
 
 	for _, t := range targets {

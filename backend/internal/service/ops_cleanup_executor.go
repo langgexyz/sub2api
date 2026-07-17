@@ -53,6 +53,17 @@ func (c opsCleanupDeletedCounts) String() string {
 //   - days < 0  → 跳过该项清理（ok=false），保留兼容老数据
 //   - days == 0 → TRUNCATE TABLE（O(1) 全清），truncate=true
 //   - days > 0  → 批量 DELETE 早于 now-N天 的行，cutoff = now - N 天
+// requestResponseLogPlanDays 把 request_response_logs 的配置值映射成 opsCleanupPlan
+// 认识的天数。该表的 0 语义是「不清理」而非 TRUNCATE：原文日志是会话回放/历史分析
+// 的唯一数据源，误配 0 不应整表清空。映射成 -1 走 plan 的跳过分支（负数配置在
+// Config.Validate 已被拒，运行期的 -1 只能来自本映射）。
+func requestResponseLogPlanDays(days int) int {
+	if days == 0 {
+		return -1
+	}
+	return days
+}
+
 func opsCleanupPlan(now time.Time, days int) (cutoff time.Time, truncate, ok bool) {
 	if days < 0 {
 		return time.Time{}, false, false

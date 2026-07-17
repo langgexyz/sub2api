@@ -863,7 +863,10 @@ ops:
   # 其他详细设置（数据清理、预聚合等）在运维监控设置对话框中配置
   enabled: true
   cleanup:
-    request_response_log_retention_days: 30
+    # 原文请求/响应日志保留天数。0 = 永不清理（默认，供会话回放/历史分析）；
+    # 正数 N = 每日清理任务删除 N 天前的行。注意与其他 retention 键不同，
+    # 这里 0 不是 TRUNCATE。
+    request_response_log_retention_days: 0
 
 # =============================================================================
 # JWT Configuration

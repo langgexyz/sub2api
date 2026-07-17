@@ -1325,6 +1325,9 @@ type OpsCleanupConfig struct {
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
 	// RequestResponseLogRetentionDays controls raw request/response retention.
 	// It is independent from error-log retention because raw payloads are much larger.
+	// Unlike the other retention keys, 0 means "never clean" (not TRUNCATE): the raw
+	// logs feed session replay/history analysis, so keep-forever must be expressible
+	// and a mis-set 0 must not wipe the table.
 	RequestResponseLogRetentionDays int `mapstructure:"request_response_log_retention_days"`
 }
 
@@ -1891,7 +1894,9 @@ func setDefaults() {
 	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
-	viper.SetDefault("ops.cleanup.request_response_log_retention_days", 30)
+	// 默认 0 = 永不清理（语义见 OpsCleanupConfig 注释）：原文日志供会话回放/
+	// 历史分析用，按 TTL 删历史必须是显式运维决策，不能是隐式默认。
+	viper.SetDefault("ops.cleanup.request_response_log_retention_days", 0)
 	viper.SetDefault("ops.aggregation.enabled", true)
 	viper.SetDefault("ops.metrics_collector_cache.enabled", true)
 	// TTL should be slightly larger than collection interval (1m) to maximize cross-replica cache hits.
