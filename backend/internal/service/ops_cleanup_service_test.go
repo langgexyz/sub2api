@@ -39,6 +39,35 @@ func TestOpsCleanupPlan(t *testing.T) {
 	}
 }
 
+func TestRequestResponseLogPlanDays(t *testing.T) {
+	now := time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name   string
+		days   int
+		wantOK bool
+	}{
+		// 0 = 永不清理：经映射后 plan 必须跳过，绝不允许落到 TRUNCATE 分支。
+		{name: "zero means never clean", days: 0, wantOK: false},
+		{name: "positive keeps ttl delete", days: 30, wantOK: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cutoff, truncate, ok := opsCleanupPlan(now, requestResponseLogPlanDays(tc.days))
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if truncate {
+				t.Fatalf("request_response_logs must never be truncated, got truncate=true")
+			}
+			if ok && !cutoff.Equal(now.AddDate(0, 0, -tc.days)) {
+				t.Fatalf("cutoff = %v, want %v", cutoff, now.AddDate(0, 0, -tc.days))
+			}
+		})
+	}
+}
+
 func TestIsMissingRelationError(t *testing.T) {
 	cases := []struct {
 		name string

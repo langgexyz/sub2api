@@ -27,6 +27,15 @@ type AuthIdentity func(*sql.Selector)
 // AuthIdentityChannel is the predicate function for authidentitychannel builders.
 type AuthIdentityChannel func(*sql.Selector)
 
+// BatchImageEvent is the predicate function for batchimageevent builders.
+type BatchImageEvent func(*sql.Selector)
+
+// BatchImageItem is the predicate function for batchimageitem builders.
+type BatchImageItem func(*sql.Selector)
+
+// BatchImageJob is the predicate function for batchimagejob builders.
+type BatchImageJob func(*sql.Selector)
+
 // ChannelMonitor is the predicate function for channelmonitor builders.
 type ChannelMonitor func(*sql.Selector)
 
@@ -44,6 +53,9 @@ type ErrorPassthroughRule func(*sql.Selector)
 
 // Group is the predicate function for group builders.
 type Group func(*sql.Selector)
+
+// GroupModelRoute is the predicate function for groupmodelroute builders.
+type GroupModelRoute func(*sql.Selector)
 
 // IdempotencyRecord is the predicate function for idempotencyrecord builders.
 type IdempotencyRecord func(*sql.Selector)

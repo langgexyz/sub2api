@@ -9,6 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const requestResponseCaptureMaxBytes = 1 << 20
+
 // RequestResponseCapture 透明捕获网关请求体与响应体原文，异步落库供 Prompt 分析。
 // 设计：对现有 handler/service 零侵入——request_id 复用 RequestLogger 注入的 ctx 值
 // （与 usage_logs.request_id 同源可 JOIN），session_hash 自行从 metadata.user_id 解析。
@@ -28,22 +30,25 @@ func RequestResponseCapture(repo service.RequestResponseLogRepository) gin.Handl
 
 		tw := &teeResponseWriter{
 			ResponseWriter: c.Writer,
-			buf:            &bytes.Buffer{},
 		}
 		c.Writer = tw
 
 		c.Next()
 
 		ctx := c.Request.Context()
+		persistedRequest, requestTruncated := truncateCapturedBody(reqBody)
+		persistedResponse, responseTruncated := tw.Captured()
 		log := &service.RequestResponseLog{
-			RequestID:    service.ResolveUsageBillingRequestID(ctx, ""),
-			SessionHash:  extractSessionHash(reqBody),
-			Model:        extractModel(reqBody),
-			Endpoint:     c.FullPath(),
-			StatusCode:   c.Writer.Status(),
-			Stream:       isStreamResponse(tw),
-			RequestBody:  reqBody,
-			ResponseBody: tw.buf.Bytes(),
+			RequestID:         service.ResolveUsageBillingRequestID(ctx, ""),
+			SessionHash:       extractSessionHash(reqBody),
+			Model:             extractModel(reqBody),
+			Endpoint:          c.FullPath(),
+			StatusCode:        c.Writer.Status(),
+			Stream:            isStreamResponse(tw),
+			RequestBody:       persistedRequest,
+			ResponseBody:      persistedResponse,
+			RequestTruncated:  requestTruncated,
+			ResponseTruncated: responseTruncated,
 		}
 		if apiKey, ok := GetAPIKeyFromContext(c); ok && apiKey != nil {
 			log.APIKeyID = &apiKey.ID
@@ -90,20 +95,46 @@ func extractModel(body []byte) string {
 	return probe.Model
 }
 
-// teeResponseWriter 在写客户端的同时把全部响应字节累积进 buf（不截断）。
+// teeResponseWriter 在写客户端的同时累积有限的响应副本。
 type teeResponseWriter struct {
 	gin.ResponseWriter
-	buf *bytes.Buffer
+	buf       bytes.Buffer
+	truncated bool
 }
 
 func (w *teeResponseWriter) Write(b []byte) (int, error) {
-	_, _ = w.buf.Write(b) // bytes.Buffer.Write 永不返回 error
+	w.capture(b)
 	return w.ResponseWriter.Write(b)
 }
 
 func (w *teeResponseWriter) WriteString(s string) (int, error) {
-	_, _ = w.buf.WriteString(s)
+	w.capture([]byte(s))
 	return w.ResponseWriter.WriteString(s)
+}
+
+func (w *teeResponseWriter) capture(b []byte) {
+	if w.buf.Len() >= requestResponseCaptureMaxBytes {
+		w.truncated = w.truncated || len(b) > 0
+		return
+	}
+	remaining := requestResponseCaptureMaxBytes - w.buf.Len()
+	if len(b) > remaining {
+		_, _ = w.buf.Write(b[:remaining])
+		w.truncated = true
+		return
+	}
+	_, _ = w.buf.Write(b)
+}
+
+func (w *teeResponseWriter) Captured() ([]byte, bool) {
+	return append([]byte(nil), w.buf.Bytes()...), w.truncated
+}
+
+func truncateCapturedBody(body []byte) ([]byte, bool) {
+	if len(body) <= requestResponseCaptureMaxBytes {
+		return append([]byte(nil), body...), false
+	}
+	return append([]byte(nil), body[:requestResponseCaptureMaxBytes]...), true
 }
 
 func isStreamResponse(w *teeResponseWriter) bool {

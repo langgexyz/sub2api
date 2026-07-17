@@ -29,7 +29,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -93,6 +93,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	CapacityInference       CapacityInferenceConfig       `mapstructure:"capacity_inference"`
 	AccountUsageProbe       AccountUsageProbeConfig       `mapstructure:"account_usage_probe"`
 }
@@ -201,6 +202,56 @@ type IdempotencyConfig struct {
 	CleanupIntervalSeconds int `mapstructure:"cleanup_interval_seconds"`
 	// CleanupBatchSize 每次清理的最大记录数。
 	CleanupBatchSize int `mapstructure:"cleanup_batch_size"`
+}
+
+type BatchImageConfig struct {
+	Enabled                           bool   `mapstructure:"enabled"`
+	MaxItemsPerJobDefault             int    `mapstructure:"max_items_per_job_default"`
+	MaxItemsPerJobTrial               int    `mapstructure:"max_items_per_job_trial"`
+	MaxOutputImagesPerJob             int    `mapstructure:"max_output_images_per_job"`
+	MaxOutputImagesPerItem            int    `mapstructure:"max_output_images_per_item"`
+	MaxPromptCharsPerItem             int    `mapstructure:"max_prompt_chars_per_item"`
+	MaxReferenceImagesPerJob          int    `mapstructure:"max_reference_images_per_job"`
+	MaxReferenceInlineBytesPerJob     int    `mapstructure:"max_reference_inline_bytes_per_job"`
+	DefaultResponseMimeType           string `mapstructure:"default_response_mime_type"`
+	DefaultImageSize                  string `mapstructure:"default_image_size"`
+	MaxDownloadItemsZip               int    `mapstructure:"max_download_items_zip"`
+	MaxDownloadBytesPerRequest        int64  `mapstructure:"max_download_bytes_per_request"`
+	MaxDownloadDurationSeconds        int    `mapstructure:"max_download_duration_seconds"`
+	MaxDownloadConcurrencyPerUser     int    `mapstructure:"max_download_concurrency_per_user"`
+	InputRetentionAfterTerminalHours  int    `mapstructure:"input_retention_after_terminal_hours"`
+	OutputRetentionAfterTerminalHours int    `mapstructure:"output_retention_after_terminal_hours"`
+	OutputRetentionMaxDays            int    `mapstructure:"output_retention_max_days"`
+	CleanupIntervalMinutes            int    `mapstructure:"cleanup_interval_minutes"`
+	CleanupBatchSize                  int    `mapstructure:"cleanup_batch_size"`
+	QueueEnabled                      bool   `mapstructure:"queue_enabled"`
+	QueueReadyKey                     string `mapstructure:"queue_ready_key"`
+	QueueDelayedKey                   string `mapstructure:"queue_delayed_key"`
+	QueueActiveKey                    string `mapstructure:"queue_active_key"`
+	InflightKeyPrefix                 string `mapstructure:"inflight_key_prefix"`
+	LockKeyPrefix                     string `mapstructure:"lock_key_prefix"`
+	IdempotencyKeyPrefix              string `mapstructure:"idempotency_key_prefix"`
+	InflightTTLSeconds                int    `mapstructure:"inflight_ttl_seconds"`
+	JobLockTTLSeconds                 int    `mapstructure:"job_lock_ttl_seconds"`
+	DefaultRequeueDelaySeconds        int    `mapstructure:"default_requeue_delay_seconds"`
+	ErrorRetryDelaySeconds            int    `mapstructure:"error_retry_delay_seconds"`
+	LockConflictDelaySeconds          int    `mapstructure:"lock_conflict_delay_seconds"`
+	StaleActiveAfterSeconds           int    `mapstructure:"stale_active_after_seconds"`
+	DelayedMoverIntervalSeconds       int    `mapstructure:"delayed_mover_interval_seconds"`
+	RecoveryIntervalSeconds           int    `mapstructure:"recovery_interval_seconds"`
+	DelayedMoveLimit                  int    `mapstructure:"delayed_move_limit"`
+	RecoverLimit                      int    `mapstructure:"recover_limit"`
+	VertexEnabled                     bool   `mapstructure:"vertex_enabled"`
+	VertexProjectID                   string `mapstructure:"vertex_project_id"`
+	VertexLocation                    string `mapstructure:"vertex_location"`
+	// VertexManagedGCSBucket is a server-owned bucket for batch JSONL input/output.
+	// Disable Cloud Storage soft delete on this bucket to avoid retaining deleted batch objects.
+	VertexManagedGCSBucket       string `mapstructure:"vertex_managed_gcs_bucket"`
+	VertexManagedGCSPrefix       string `mapstructure:"vertex_managed_gcs_prefix"`
+	VertexInputRetentionHours    int    `mapstructure:"vertex_input_retention_hours"`
+	VertexOutputRetentionHours   int    `mapstructure:"vertex_output_retention_hours"`
+	VertexBatchPredictionBaseURL string `mapstructure:"vertex_batch_prediction_base_url"`
+	VertexGCSBaseURL             string `mapstructure:"vertex_gcs_base_url"`
 }
 
 type LinuxDoConnectConfig struct {
@@ -578,6 +629,7 @@ type ServerConfig struct {
 	Host               string    `mapstructure:"host"`
 	Port               int       `mapstructure:"port"`
 	Mode               string    `mapstructure:"mode"`                  // debug/release
+	EnableServerTiming bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
 	FrontendURL        string    `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
 	ReadHeaderTimeout  int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
 	IdleTimeout        int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
@@ -671,6 +723,10 @@ type ProxyProbeConfig struct {
 
 type BillingConfig struct {
 	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
+	// MinimumBalanceReserve is the conservative preflight floor for balance billing.
+	// Requests in balance mode are rejected when the cached balance is below this
+	// amount, even if it is still positive. Set to 0 to keep the legacy balance > 0 gate.
+	MinimumBalanceReserve float64 `mapstructure:"minimum_balance_reserve"`
 	// UserPlatformQuotaCacheTTLSeconds 用户 × 平台 quota 缓存 TTL（秒），默认 86400=1天，覆盖典型 daily 窗口。
 	// 消费点：
 	//   - billing_cache_service.cacheWriteWorker 异步累加
@@ -733,6 +789,10 @@ type GatewayConfig struct {
 	// ForceCodexCLI: 强制将 OpenAI `/v1/responses` 请求按 Codex CLI 处理。
 	// 用于网关未透传/改写 User-Agent 时的兼容兜底（默认关闭，避免影响其他客户端）。
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
+	// OpenAINonStreamKeepalive: 对 OpenAI passthrough 的非流式请求，内部改用流式调上游，
+	// 在等待上游生成期间向客户端周期性写入空白保活字节（JSON 解析忽略前导空白），
+	// 避免慢推理(分钟级)期间客户端因空闲读超时主动 abort。默认关闭。
+	OpenAINonStreamKeepalive bool `mapstructure:"openai_nonstream_keepalive"`
 	// CodexImageGenerationBridgeEnabled: 是否为 Codex `/v1/responses` 自动注入 image_generation 工具和桥接指令。
 	// 默认关闭，避免纯文本 Codex 请求被意外改写；显式携带 image_generation 工具的请求仍按分组能力转发。
 	CodexImageGenerationBridgeEnabled bool `mapstructure:"codex_image_generation_bridge_enabled"`
@@ -745,8 +805,13 @@ type GatewayConfig struct {
 	// OpenAIPassthroughAllowTimeoutHeaders: OpenAI 透传模式是否放行客户端超时头
 	// 关闭（默认）可避免 x-stainless-timeout 等头导致上游提前断流。
 	OpenAIPassthroughAllowTimeoutHeaders bool `mapstructure:"openai_passthrough_allow_timeout_headers"`
+	// OpenAICompactModel: /responses/compact 上游使用的模型。
+	// compact 端点支持模型滞后于普通 /responses 时，可用该配置降级规避上游错误。
+	OpenAICompactModel string `mapstructure:"openai_compact_model"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
+	// OpenAIScheduler: OpenAI 高级调度器粘性逃逸配置
+	OpenAIScheduler GatewayOpenAISchedulerConfig `mapstructure:"openai_scheduler"`
 	// OpenAIHTTP2: OpenAI HTTP 上游协议策略（默认启用 HTTP/2，可按代理能力回退 HTTP/1.1）
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
@@ -889,8 +954,14 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 type GatewayOpenAIWSConfig struct {
 	// ModeRouterV2Enabled: 新版 WS mode 路由开关（默认 false；关闭时保持 legacy 行为）
 	ModeRouterV2Enabled bool `mapstructure:"mode_router_v2_enabled"`
-	// IngressModeDefault: ingress 默认模式（off/ctx_pool/passthrough）
+	// IngressModeDefault: ingress 默认模式（off/ctx_pool/passthrough/http_bridge）
 	IngressModeDefault string `mapstructure:"ingress_mode_default"`
+	// IngressInterTurnIdleTimeoutSeconds bounds the time a client may remain idle
+	// between completed ingress turns. Zero disables this protection.
+	IngressInterTurnIdleTimeoutSeconds int `mapstructure:"ingress_inter_turn_idle_timeout_seconds"`
+	// MaxIngressConnectionsPerAPIKey bounds live client WebSocket ingress sessions
+	// per API key across all instances. Zero disables this protection.
+	MaxIngressConnectionsPerAPIKey int `mapstructure:"max_ingress_connections_per_api_key"`
 	// Enabled: 全局总开关（默认 true）
 	Enabled bool `mapstructure:"enabled"`
 	// OAuthEnabled: 是否允许 OpenAI OAuth 账号使用 WS
@@ -913,6 +984,12 @@ type GatewayOpenAIWSConfig struct {
 	StoreDisabledForceNewConn bool `mapstructure:"store_disabled_force_new_conn"`
 	// PrewarmGenerateEnabled: 是否启用 WSv2 generate=false 预热（默认 false）
 	PrewarmGenerateEnabled bool `mapstructure:"prewarm_generate_enabled"`
+	// ClientReadLimitBytes: 入站客户端 WS 单帧读取上限。
+	ClientReadLimitBytes int64 `mapstructure:"client_read_limit_bytes"`
+	// HTTPBridgeEnabled: 首包过大时，保持客户端 WS，改用 HTTP Responses 上游。
+	HTTPBridgeEnabled bool `mapstructure:"http_bridge_enabled"`
+	// HTTPBridgeThresholdBytes: 触发 HTTP bridge 的入站 WS payload 阈值。
+	HTTPBridgeThresholdBytes int64 `mapstructure:"http_bridge_threshold_bytes"`
 
 	// Feature 开关：v2 优先于 v1
 	ResponsesWebsockets   bool `mapstructure:"responses_websockets"`
@@ -977,6 +1054,24 @@ type GatewayOpenAIWSSchedulerScoreWeights struct {
 	Queue     float64 `mapstructure:"queue"`
 	ErrorRate float64 `mapstructure:"error_rate"`
 	TTFT      float64 `mapstructure:"ttft"`
+	// Reset 倾向「会话窗口最早重置」的账号（use-it-or-lose-it）。
+	// >0 时，剩余重置时间越短的账号得分越高，从而被优先用尽。默认 0（关闭，不改变原有行为）。
+	Reset float64 `mapstructure:"reset"`
+	// QuotaHeadroom 倾向 7d 剩余额度更健康的账号；默认 0（关闭，不改变原有行为）。
+	QuotaHeadroom float64 `mapstructure:"quota_headroom"`
+	// PreviousResponse/SessionSticky 仅在开启 OpenAI 高级调度的粘性加权时生效。
+	PreviousResponse float64 `mapstructure:"previous_response"`
+	SessionSticky    float64 `mapstructure:"session_sticky"`
+}
+
+// GatewayOpenAISchedulerConfig OpenAI 高级调度器配置。
+type GatewayOpenAISchedulerConfig struct {
+	// StickyEscapeEnabled: 是否允许 session_hash sticky 在账号健康度劣化时临时逃逸
+	StickyEscapeEnabled bool `mapstructure:"sticky_escape_enabled"`
+	// StickyEscapeTTFTMs: TTFT EWMA 超过该阈值时跳过 sticky
+	StickyEscapeTTFTMs int `mapstructure:"sticky_escape_ttft_ms"`
+	// StickyEscapeErrorRate: 错误率 EWMA 超过该阈值时跳过 sticky
+	StickyEscapeErrorRate float64 `mapstructure:"sticky_escape_error_rate"`
 }
 
 // GatewayUsageRecordConfig 使用量记录异步队列配置
@@ -1062,8 +1157,17 @@ type GatewaySchedulingConfig struct {
 	FallbackWaitTimeout time.Duration `mapstructure:"fallback_wait_timeout"`
 	FallbackMaxWaiting  int           `mapstructure:"fallback_max_waiting"`
 
+	// 用户/账号并发槽等待上限：抢不到并发槽时排队等待的最长时间，超时才返回 429。
+	// <=0 时沿用内置默认 30s（maxConcurrencyWait）。
+	ConcurrencyWaitTimeout time.Duration `mapstructure:"concurrency_wait_timeout"`
+
 	// 兜底层账户选择策略: "last_used"(按最后使用时间排序，默认) 或 "random"(随机)
 	FallbackSelectionMode string `mapstructure:"fallback_selection_mode"`
+
+	// PreferSoonestReset 开启后，负载感知选择会优先选用「会话窗口最早重置」的账号
+	// （use-it-or-lose-it：先用尽即将重置的账号，保留重置时间还很久的账号）。
+	// 默认 false，保持原有「优先级 → 负载率 → LRU」行为不变。
+	PreferSoonestReset bool `mapstructure:"prefer_soonest_reset"`
 
 	// 负载计算
 	LoadBatchEnabled    bool `mapstructure:"load_batch_enabled"`
@@ -1219,6 +1323,12 @@ type OpsCleanupConfig struct {
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
+	// RequestResponseLogRetentionDays controls raw request/response retention.
+	// It is independent from error-log retention because raw payloads are much larger.
+	// Unlike the other retention keys, 0 means "never clean" (not TRUNCATE): the raw
+	// logs feed session replay/history analysis, so keep-forever must be expressible
+	// and a mis-set 0 must not wipe the table.
+	RequestResponseLogRetentionDays int `mapstructure:"request_response_log_retention_days"`
 }
 
 type OpsAggregationConfig struct {
@@ -1392,6 +1502,9 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 环境变量支持
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	if err := viper.BindEnv("server.enable_server_timing", "ENABLE_SERVER_TIMING"); err != nil {
+		return nil, fmt.Errorf("bind ENABLE_SERVER_TIMING: %w", err)
+	}
 
 	// 默认值
 	setDefaults()
@@ -1406,6 +1519,15 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config error: %w", err)
+	}
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs == 0 {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeTTFTMs = 15000
+	}
+	if cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate == 0 {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+	}
+	if !cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled && !viper.IsSet("gateway.openai_scheduler.sticky_escape_enabled") {
+		cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
 	}
 
 	cfg.RunMode = NormalizeRunMode(cfg.RunMode)
@@ -1538,6 +1660,7 @@ func setDefaults() {
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "release")
+	viper.SetDefault("server.enable_server_timing", false)
 	viper.SetDefault("server.frontend_url", "")
 	viper.SetDefault("server.read_header_timeout", 30) // 30秒读取请求头
 	viper.SetDefault("server.idle_timeout", 120)       // 120秒空闲超时
@@ -1608,6 +1731,7 @@ func setDefaults() {
 	viper.SetDefault("billing.circuit_breaker.failure_threshold", 5)
 	viper.SetDefault("billing.circuit_breaker.reset_timeout_seconds", 30)
 	viper.SetDefault("billing.circuit_breaker.half_open_requests", 3)
+	viper.SetDefault("billing.minimum_balance_reserve", 0.000001)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
 
@@ -1692,8 +1816,10 @@ func setDefaults() {
 	viper.SetDefault("database.password", "postgres")
 	viper.SetDefault("database.dbname", "sub2api")
 	viper.SetDefault("database.sslmode", "prefer")
-	viper.SetDefault("database.max_open_conns", 256)
-	viper.SetDefault("database.max_idle_conns", 128)
+	// Keep the application pool below the PostgreSQL connection budget on the
+	// small production footprint; callers still queue in database/sql.
+	viper.SetDefault("database.max_open_conns", 80)
+	viper.SetDefault("database.max_idle_conns", 32)
 	viper.SetDefault("database.conn_max_lifetime_minutes", 30)
 	viper.SetDefault("database.conn_max_idle_time_minutes", 5)
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
@@ -1712,6 +1838,53 @@ func setDefaults() {
 	viper.SetDefault("redis.min_idle_conns", 128)
 	viper.SetDefault("redis.enable_tls", false)
 
+	// Batch Image queue
+	viper.SetDefault("batch_image.enabled", false)
+	viper.SetDefault("batch_image.max_items_per_job_default", 200)
+	viper.SetDefault("batch_image.max_items_per_job_trial", 50)
+	viper.SetDefault("batch_image.max_output_images_per_job", 200)
+	viper.SetDefault("batch_image.max_output_images_per_item", 4)
+	viper.SetDefault("batch_image.max_prompt_chars_per_item", 8000)
+	viper.SetDefault("batch_image.max_reference_images_per_job", 1000)
+	viper.SetDefault("batch_image.max_reference_inline_bytes_per_job", 134217728)
+	viper.SetDefault("batch_image.default_response_mime_type", "image/png")
+	viper.SetDefault("batch_image.default_image_size", "1K")
+	viper.SetDefault("batch_image.max_download_items_zip", 200)
+	viper.SetDefault("batch_image.max_download_bytes_per_request", 536870912)
+	viper.SetDefault("batch_image.max_download_duration_seconds", 600)
+	viper.SetDefault("batch_image.max_download_concurrency_per_user", 1)
+	viper.SetDefault("batch_image.input_retention_after_terminal_hours", 24)
+	viper.SetDefault("batch_image.output_retention_after_terminal_hours", 72)
+	viper.SetDefault("batch_image.output_retention_max_days", 7)
+	viper.SetDefault("batch_image.cleanup_interval_minutes", 30)
+	viper.SetDefault("batch_image.cleanup_batch_size", 100)
+	viper.SetDefault("batch_image.queue_enabled", false)
+	viper.SetDefault("batch_image.queue_ready_key", "batch_image:queue:ready")
+	viper.SetDefault("batch_image.queue_delayed_key", "batch_image:queue:delayed")
+	viper.SetDefault("batch_image.queue_active_key", "batch_image:queue:active")
+	viper.SetDefault("batch_image.inflight_key_prefix", "batch_image:queue:inflight:")
+	viper.SetDefault("batch_image.lock_key_prefix", "batch_image:queue:lock:")
+	viper.SetDefault("batch_image.idempotency_key_prefix", "batch_image:queue:idem:")
+	viper.SetDefault("batch_image.inflight_ttl_seconds", 604800)
+	viper.SetDefault("batch_image.job_lock_ttl_seconds", 300)
+	viper.SetDefault("batch_image.default_requeue_delay_seconds", 30)
+	viper.SetDefault("batch_image.error_retry_delay_seconds", 60)
+	viper.SetDefault("batch_image.lock_conflict_delay_seconds", 5)
+	viper.SetDefault("batch_image.stale_active_after_seconds", 600)
+	viper.SetDefault("batch_image.delayed_mover_interval_seconds", 5)
+	viper.SetDefault("batch_image.recovery_interval_seconds", 300)
+	viper.SetDefault("batch_image.delayed_move_limit", 100)
+	viper.SetDefault("batch_image.recover_limit", 100)
+	viper.SetDefault("batch_image.vertex_enabled", false)
+	viper.SetDefault("batch_image.vertex_project_id", "")
+	viper.SetDefault("batch_image.vertex_location", "global")
+	viper.SetDefault("batch_image.vertex_managed_gcs_bucket", "")
+	viper.SetDefault("batch_image.vertex_managed_gcs_prefix", "batch-image/{env}/{batch_id}")
+	viper.SetDefault("batch_image.vertex_input_retention_hours", 24)
+	viper.SetDefault("batch_image.vertex_output_retention_hours", 72)
+	viper.SetDefault("batch_image.vertex_batch_prediction_base_url", "")
+	viper.SetDefault("batch_image.vertex_gcs_base_url", "")
+
 	// Ops (vNext)
 	viper.SetDefault("ops.enabled", true)
 	viper.SetDefault("ops.use_preaggregated_tables", true)
@@ -1721,6 +1894,9 @@ func setDefaults() {
 	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
+	// 默认 0 = 永不清理（语义见 OpsCleanupConfig 注释）：原文日志供会话回放/
+	// 历史分析用，按 TTL 删历史必须是显式运维决策，不能是隐式默认。
+	viper.SetDefault("ops.cleanup.request_response_log_retention_days", 0)
 	viper.SetDefault("ops.aggregation.enabled", true)
 	viper.SetDefault("ops.metrics_collector_cache.enabled", true)
 	// TTL should be slightly larger than collection interval (1m) to maximize cross-replica cache hits.
@@ -1820,12 +1996,16 @@ func setDefaults() {
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.force_codex_cli", false)
+	viper.SetDefault("gateway.openai_nonstream_keepalive", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
+	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
 	viper.SetDefault("gateway.openai_ws.ingress_mode_default", "ctx_pool")
+	viper.SetDefault("gateway.openai_ws.ingress_inter_turn_idle_timeout_seconds", 300)
+	viper.SetDefault("gateway.openai_ws.max_ingress_connections_per_api_key", 64)
 	viper.SetDefault("gateway.openai_ws.oauth_enabled", true)
 	viper.SetDefault("gateway.openai_ws.apikey_enabled", true)
 	viper.SetDefault("gateway.openai_ws.force_http", false)
@@ -1834,6 +2014,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.store_disabled_conn_mode", "strict")
 	viper.SetDefault("gateway.openai_ws.store_disabled_force_new_conn", true)
 	viper.SetDefault("gateway.openai_ws.prewarm_generate_enabled", false)
+	viper.SetDefault("gateway.openai_ws.client_read_limit_bytes", 64*1024*1024)
+	viper.SetDefault("gateway.openai_ws.http_bridge_enabled", true)
+	viper.SetDefault("gateway.openai_ws.http_bridge_threshold_bytes", 15*1024*1024)
 	viper.SetDefault("gateway.openai_ws.responses_websockets", false)
 	viper.SetDefault("gateway.openai_ws.responses_websockets_v2", true)
 	viper.SetDefault("gateway.openai_ws.max_conns_per_account", 128)
@@ -1868,6 +2051,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.queue", 0.7)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.error_rate", 0.8)
 	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.ttft", 0.5)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.reset", 0.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.quota_headroom", 0.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.previous_response", 5.0)
+	viper.SetDefault("gateway.openai_ws.scheduler_score_weights.session_sticky", 3.0)
 	// OpenAI HTTP upstream protocol strategy
 	viper.SetDefault("gateway.openai_http2.enabled", true)
 	viper.SetDefault("gateway.openai_http2.allow_proxy_fallback_to_http1", true)
@@ -1903,7 +2090,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_max_waiting", 100)
+	viper.SetDefault("gateway.scheduling.concurrency_wait_timeout", 30*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_selection_mode", "last_used")
+	viper.SetDefault("gateway.scheduling.prefer_soonest_reset", false)
 	viper.SetDefault("gateway.scheduling.load_batch_enabled", true)
 	viper.SetDefault("gateway.scheduling.load_batch_cache_ttl_ms", 200)
 	viper.SetDefault("gateway.scheduling.snapshot_mget_chunk_size", 128)
@@ -1921,7 +2110,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.usage_record.worker_count", 128)
 	viper.SetDefault("gateway.usage_record.queue_size", 16384)
 	viper.SetDefault("gateway.usage_record.task_timeout_seconds", 5)
-	viper.SetDefault("gateway.usage_record.overflow_policy", UsageRecordOverflowPolicySample)
+	// 默认 sync：队列满时由提交方内联执行（提交点在响应写出之后，不阻塞客户端）。
+	// sample/drop 会在溢出时静默丢弃计费任务，造成扣费与 usage_logs 对账缺口（issue #3656），
+	// 仅供显式配置的运维场景使用。
+	viper.SetDefault("gateway.usage_record.overflow_policy", UsageRecordOverflowPolicySync)
 	viper.SetDefault("gateway.usage_record.overflow_sample_percent", 10)
 	viper.SetDefault("gateway.usage_record.auto_scale_enabled", true)
 	viper.SetDefault("gateway.usage_record.auto_scale_min_workers", 128)
@@ -2277,6 +2469,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("billing.circuit_breaker.half_open_requests must be positive")
 		}
 	}
+	if c.Billing.MinimumBalanceReserve < 0 {
+		return fmt.Errorf("billing.minimum_balance_reserve must be non-negative")
+	}
 	if c.Database.MaxOpenConns <= 0 {
 		return fmt.Errorf("database.max_open_conns must be positive")
 	}
@@ -2309,6 +2504,61 @@ func (c *Config) Validate() error {
 	}
 	if c.Redis.MinIdleConns > c.Redis.PoolSize {
 		return fmt.Errorf("redis.min_idle_conns cannot exceed redis.pool_size")
+	}
+	if c.BatchImage.QueueEnabled {
+		if strings.TrimSpace(c.BatchImage.QueueReadyKey) == "" {
+			return fmt.Errorf("batch_image.queue_ready_key must not be empty")
+		}
+		if strings.TrimSpace(c.BatchImage.QueueDelayedKey) == "" {
+			return fmt.Errorf("batch_image.queue_delayed_key must not be empty")
+		}
+		if strings.TrimSpace(c.BatchImage.QueueActiveKey) == "" {
+			return fmt.Errorf("batch_image.queue_active_key must not be empty")
+		}
+		if strings.TrimSpace(c.BatchImage.InflightKeyPrefix) == "" {
+			return fmt.Errorf("batch_image.inflight_key_prefix must not be empty")
+		}
+		if strings.TrimSpace(c.BatchImage.LockKeyPrefix) == "" {
+			return fmt.Errorf("batch_image.lock_key_prefix must not be empty")
+		}
+		if c.BatchImage.InflightTTLSeconds <= 0 {
+			return fmt.Errorf("batch_image.inflight_ttl_seconds must be positive")
+		}
+		if c.BatchImage.JobLockTTLSeconds <= 0 {
+			return fmt.Errorf("batch_image.job_lock_ttl_seconds must be positive")
+		}
+		if c.BatchImage.StaleActiveAfterSeconds <= 0 {
+			return fmt.Errorf("batch_image.stale_active_after_seconds must be positive")
+		}
+		if c.BatchImage.DelayedMoveLimit <= 0 {
+			return fmt.Errorf("batch_image.delayed_move_limit must be positive")
+		}
+		if c.BatchImage.RecoverLimit <= 0 {
+			return fmt.Errorf("batch_image.recover_limit must be positive")
+		}
+	}
+	if c.BatchImage.VertexEnabled {
+		if strings.TrimSpace(c.BatchImage.VertexManagedGCSBucket) == "" {
+			return fmt.Errorf("batch_image.vertex_managed_gcs_bucket must not be empty when vertex is enabled")
+		}
+		if strings.Contains(c.BatchImage.VertexManagedGCSBucket, "://") {
+			return fmt.Errorf("batch_image.vertex_managed_gcs_bucket must be a bucket name, not a URI")
+		}
+		if strings.TrimSpace(c.BatchImage.VertexLocation) == "" {
+			return fmt.Errorf("batch_image.vertex_location must not be empty when vertex is enabled")
+		}
+		if strings.TrimSpace(c.BatchImage.VertexManagedGCSPrefix) == "" {
+			return fmt.Errorf("batch_image.vertex_managed_gcs_prefix must not be empty when vertex is enabled")
+		}
+		if !strings.Contains(c.BatchImage.VertexManagedGCSPrefix, "{batch_id}") {
+			return fmt.Errorf("batch_image.vertex_managed_gcs_prefix must contain {batch_id}")
+		}
+		if c.BatchImage.VertexInputRetentionHours <= 0 {
+			return fmt.Errorf("batch_image.vertex_input_retention_hours must be positive")
+		}
+		if c.BatchImage.VertexOutputRetentionHours <= 0 {
+			return fmt.Errorf("batch_image.vertex_output_retention_hours must be positive")
+		}
 	}
 	if c.Dashboard.Enabled {
 		if c.Dashboard.StatsFreshTTLSeconds <= 0 {
@@ -2541,6 +2791,12 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIWS.MaxConnsPerAccount <= 0 {
 		return fmt.Errorf("gateway.openai_ws.max_conns_per_account must be positive")
 	}
+	if c.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.openai_ws.ingress_inter_turn_idle_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.OpenAIWS.MaxIngressConnectionsPerAPIKey < 0 {
+		return fmt.Errorf("gateway.openai_ws.max_ingress_connections_per_api_key must be non-negative")
+	}
 	if c.Gateway.OpenAIWS.MinIdlePerAccount < 0 {
 		return fmt.Errorf("gateway.openai_ws.min_idle_per_account must be non-negative")
 	}
@@ -2583,6 +2839,15 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIWS.PrewarmCooldownMS < 0 {
 		return fmt.Errorf("gateway.openai_ws.prewarm_cooldown_ms must be non-negative")
 	}
+	if c.Gateway.OpenAIWS.ClientReadLimitBytes <= 0 {
+		return fmt.Errorf("gateway.openai_ws.client_read_limit_bytes must be positive")
+	}
+	if c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes < 0 {
+		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be non-negative")
+	}
+	if c.Gateway.OpenAIWS.HTTPBridgeEnabled && c.Gateway.OpenAIWS.HTTPBridgeThresholdBytes == 0 {
+		return fmt.Errorf("gateway.openai_ws.http_bridge_threshold_bytes must be positive when http_bridge_enabled is true")
+	}
 	if c.Gateway.OpenAIWS.FallbackCooldownSeconds < 0 {
 		return fmt.Errorf("gateway.openai_ws.fallback_cooldown_seconds must be non-negative")
 	}
@@ -2604,11 +2869,11 @@ func (c *Config) Validate() error {
 	}
 	if mode := strings.ToLower(strings.TrimSpace(c.Gateway.OpenAIWS.IngressModeDefault)); mode != "" {
 		switch mode {
-		case "off", "ctx_pool", "passthrough":
+		case "off", "ctx_pool", "passthrough", "http_bridge":
 		case "shared", "dedicated":
-			slog.Warn("gateway.openai_ws.ingress_mode_default is deprecated, treating as ctx_pool; please update to off|ctx_pool|passthrough", "value", mode)
+			slog.Warn("gateway.openai_ws.ingress_mode_default is deprecated, treating as ctx_pool; please update to off|ctx_pool|passthrough|http_bridge", "value", mode)
 		default:
-			return fmt.Errorf("gateway.openai_ws.ingress_mode_default must be one of off|ctx_pool|passthrough")
+			return fmt.Errorf("gateway.openai_ws.ingress_mode_default must be one of off|ctx_pool|passthrough|http_bridge")
 		}
 	}
 	if mode := strings.ToLower(strings.TrimSpace(c.Gateway.OpenAIWS.StoreDisabledConnMode)); mode != "" {
@@ -2646,16 +2911,26 @@ func (c *Config) Validate() error {
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.Load < 0 ||
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.Queue < 0 ||
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate < 0 ||
-		c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT < 0 {
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT < 0 ||
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom < 0 ||
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.PreviousResponse < 0 ||
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.SessionSticky < 0 {
 		return fmt.Errorf("gateway.openai_ws.scheduler_score_weights.* must be non-negative")
 	}
 	weightSum := c.Gateway.OpenAIWS.SchedulerScoreWeights.Priority +
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.Load +
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.Queue +
 		c.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate +
-		c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT +
+		c.Gateway.OpenAIWS.SchedulerScoreWeights.QuotaHeadroom
 	if weightSum <= 0 {
 		return fmt.Errorf("gateway.openai_ws.scheduler_score_weights must not all be zero")
+	}
+	if c.Gateway.OpenAIScheduler.StickyEscapeTTFTMs <= 0 {
+		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_ttft_ms must be positive")
+	}
+	if c.Gateway.OpenAIScheduler.StickyEscapeErrorRate < 0 || c.Gateway.OpenAIScheduler.StickyEscapeErrorRate > 1 {
+		return fmt.Errorf("gateway.openai_scheduler.sticky_escape_error_rate must be between 0 and 1")
 	}
 	if c.Gateway.MaxLineSize < 0 {
 		return fmt.Errorf("gateway.max_line_size must be non-negative")
@@ -2739,6 +3014,9 @@ func (c *Config) Validate() error {
 	if c.Gateway.Scheduling.FallbackMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.fallback_max_waiting must be positive")
 	}
+	if c.Gateway.Scheduling.ConcurrencyWaitTimeout < 0 {
+		return fmt.Errorf("gateway.scheduling.concurrency_wait_timeout must be non-negative")
+	}
 	if c.Gateway.Scheduling.LoadBatchCacheTTLMS < 0 {
 		return fmt.Errorf("gateway.scheduling.load_batch_cache_ttl_ms must be non-negative")
 	}
@@ -2791,6 +3069,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.Cleanup.HourlyMetricsRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.hourly_metrics_retention_days must be non-negative")
+	}
+	if c.Ops.Cleanup.RequestResponseLogRetentionDays < 0 {
+		return fmt.Errorf("ops.cleanup.request_response_log_retention_days must be non-negative")
 	}
 	if c.Ops.Cleanup.Enabled && strings.TrimSpace(c.Ops.Cleanup.Schedule) == "" {
 		return fmt.Errorf("ops.cleanup.schedule is required when ops.cleanup.enabled=true")

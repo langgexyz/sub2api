@@ -25,6 +25,14 @@ const (
 	ContextKeySubscription ContextKey = "subscription"
 	// ContextKeyForcePlatform 强制平台（用于 /antigravity 路由）
 	ContextKeyForcePlatform ContextKey = "force_platform"
+	// ContextKeyEffectiveGroup 跨组模型路由命中后的目标分组（*service.Group）。
+	// 只在命中路由时设置；未命中则不存在，下游回落 apiKey.Group。
+	ContextKeyEffectiveGroup ContextKey = "effective_group"
+	// ContextKeyOpsFallbackAPIKey 运维错误日志专用回退键。
+	// 鉴权早退（分组停用/删除、Key 停用/过期/额度、用户停用、IP 限制等）时，
+	// apiKey 已加载但尚未写入 ContextKeyAPIKey；该键让 Ops 错误日志仍能取到
+	// user/group/platform。仅供 Ops 错误日志读取，不代表请求已通过鉴权。
+	ContextKeyOpsFallbackAPIKey ContextKey = "ops_fallback_api_key"
 )
 
 // ForcePlatform 返回设置强制平台的中间件

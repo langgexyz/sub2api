@@ -24,7 +24,12 @@ func (s *settingHandlerPublicRepoStub) Get(ctx context.Context, key string) (*se
 }
 
 func (s *settingHandlerPublicRepoStub) GetValue(ctx context.Context, key string) (string, error) {
-	panic("unexpected GetValue call")
+	// 公开设置注入路径会按单键读取 disable_email_login / registration_require_affiliate_code
+	// 等布尔开关（见 GetPublicSettingsForInjection），按 values 兜底返回而非 panic。
+	if value, ok := s.values[key]; ok {
+		return value, nil
+	}
+	return "", service.ErrSettingNotFound
 }
 
 func (s *settingHandlerPublicRepoStub) Set(ctx context.Context, key, value string) error {

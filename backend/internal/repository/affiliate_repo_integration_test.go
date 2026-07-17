@@ -150,9 +150,19 @@ func TestAffiliateRepository_AccrueQuota_ReusesOuterTransaction(t *testing.T) {
 	require.True(t, applied, "AccrueQuota must report applied=true")
 
 	// Visible inside the outer tx.
-	innerQuota := querySingleFloat(t, txCtx, client,
-		"SELECT aff_quota::double precision FROM user_affiliates WHERE user_id = $1", inviter.ID)
-	require.InDelta(t, 3.5, innerQuota, 1e-9)
+	//
+	// 断言 aff_history_quota 与 balance，不是 aff_quota：返利早已改成**自动直接进邀请人
+	// 余额**（8f2ec735 "返利自动进邀请人余额(AccrueQuota 内直接 AddBalance + 记
+	// history_quota + 台账;无冻结期)"），aff_quota 那条「待手动转入」的路已经不写了。
+	// 本用例的主题是事务传播，aff_quota 只是当年用来观察写入落没落在事务里的手段；
+	// 字段作废就换成实现真会写的字段，而不是把断言删掉。
+	innerHistoryQuota := querySingleFloat(t, txCtx, client,
+		"SELECT aff_history_quota::double precision FROM user_affiliates WHERE user_id = $1", inviter.ID)
+	require.InDelta(t, 3.5, innerHistoryQuota, 1e-9, "aff_history_quota must be accrued inside the outer tx")
+
+	innerBalance := querySingleFloat(t, txCtx, client,
+		"SELECT balance::double precision FROM users WHERE id = $1", inviter.ID)
+	require.InDelta(t, 3.5, innerBalance, 1e-9, "rebate goes straight to the inviter's balance and must be visible inside the outer tx")
 
 	// Roll back the outer tx; if AccrueQuota had opened its own inner tx and
 	// committed it, the rows would still be visible to the global client.

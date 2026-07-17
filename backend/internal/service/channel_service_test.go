@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // ---------------------------------------------------------------------------
@@ -655,6 +656,32 @@ func TestGetChannelModelPricing_ExactMatch(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, int64(100), result.ID)
 	require.InDelta(t, 15e-6, *result.InputPrice, 1e-12)
+}
+
+// TestGetChannelModelPricing_DotDashSeparatorNormalized 回归测试：定价配置用点号
+// （claude-opus-4.8），上游请求用连字符（claude-opus-4-8），两者必须匹配。
+// 历史 bug：精确匹配区分点/连字符 → 渠道定价整体哑火 → Claude 计费全部漏走 LiteLLM。
+func TestGetChannelModelPricing_DotDashSeparatorNormalized(t *testing.T) {
+	ch := Channel{
+		ID:       1,
+		Status:   StatusActive,
+		GroupIDs: []int64{10},
+		ModelPricing: []ChannelModelPricing{
+			{ID: 101, Platform: "anthropic", Models: []string{"claude-opus-4.8"}, InputPrice: testPtrFloat64(5e-6)},
+		},
+	}
+	repo := makeStandardRepo(ch, map[int64]string{10: "anthropic"})
+	svc := newTestChannelService(repo)
+
+	// 请求用连字符，配置用点号 → 必须命中
+	result := svc.GetChannelModelPricing(context.Background(), 10, "claude-opus-4-8")
+	require.NotNil(t, result, "dash request must match dot config")
+	require.Equal(t, int64(101), result.ID)
+
+	// 反向：请求用点号也应命中
+	result = svc.GetChannelModelPricing(context.Background(), 10, "claude-opus-4.8")
+	require.NotNil(t, result, "dot request must match dot config")
+	require.Equal(t, int64(101), result.ID)
 }
 
 func TestGetChannelModelPricing_CaseInsensitive(t *testing.T) {
@@ -1919,6 +1946,33 @@ func TestReplaceModelInBody_InvalidJSON(t *testing.T) {
 	arrayBody := []byte("[]")
 	result2 := ReplaceModelInBody(arrayBody, "new-model")
 	require.Equal(t, arrayBody, result2)
+}
+
+func TestRemovePreviousResponseIDFromBody(t *testing.T) {
+	t.Run("empty body returned as-is", func(t *testing.T) {
+		require.Equal(t, []byte{}, RemovePreviousResponseIDFromBody([]byte{}))
+		require.Nil(t, RemovePreviousResponseIDFromBody(nil))
+	})
+
+	t.Run("no previous_response_id field is a no-op", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-5","input":"hi"}`)
+		result := RemovePreviousResponseIDFromBody(body)
+		require.Equal(t, body, result)
+	})
+
+	t.Run("strips previous_response_id and preserves other fields", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-5","previous_response_id":"resp_abc","input":"hi"}`)
+		result := RemovePreviousResponseIDFromBody(body)
+		require.False(t, gjson.GetBytes(result, "previous_response_id").Exists())
+		require.Equal(t, "gpt-5", gjson.GetBytes(result, "model").String())
+		require.Equal(t, "hi", gjson.GetBytes(result, "input").String())
+	})
+
+	t.Run("empty-string previous_response_id is also stripped", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-5","previous_response_id":""}`)
+		result := RemovePreviousResponseIDFromBody(body)
+		require.False(t, gjson.GetBytes(result, "previous_response_id").Exists())
+	})
 }
 
 // ===========================================================================

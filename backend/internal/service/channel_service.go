@@ -202,6 +202,14 @@ func newEmptyChannelCache() *channelCache {
 	}
 }
 
+// canonicalModelName 归一化模型名用于渠道定价匹配：小写 + 把版本分隔符 '.'
+// 统一成 '-'，消除 "claude-opus-4.8"（定价配置写法）与 "claude-opus-4-8"
+// （上游请求写法）这类点号/连字符不一致导致的匹配失败。
+// 仅作用于定价查找路径；模型映射（路由）路径不归一，保持原样。
+func canonicalModelName(model string) string {
+	return strings.ReplaceAll(strings.ToLower(model), ".", "-")
+}
+
 // expandPricingToCache 将渠道的模型定价展开到缓存（按分组+平台维度）。
 // 各平台严格独立：antigravity 分组只匹配 antigravity 定价，不会匹配 anthropic/gemini 的定价。
 // 查找时通过 lookupPricingAcrossPlatforms() 在本平台内查找。
@@ -216,13 +224,13 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 		gpKey := channelGroupPlatformKey{groupID: gid, platform: pricingPlatform}
 		for _, model := range pricing.Models {
 			if strings.HasSuffix(model, "*") {
-				prefix := strings.ToLower(strings.TrimSuffix(model, "*"))
+				prefix := canonicalModelName(strings.TrimSuffix(model, "*"))
 				cache.wildcardByGroupPlatform[gpKey] = append(cache.wildcardByGroupPlatform[gpKey], &wildcardPricingEntry{
 					prefix:  prefix,
 					pricing: pricing,
 				})
 			} else {
-				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: strings.ToLower(model)}
+				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: canonicalModelName(model)}
 				cache.pricingByGroupModel[key] = pricing
 			}
 		}
@@ -472,8 +480,8 @@ func (s *ChannelService) GetChannelModelPricing(ctx context.Context, groupID int
 		return nil
 	}
 
-	modelLower := strings.ToLower(model)
-	pricing := lookupPricingAcrossPlatforms(lk.cache, groupID, lk.platform, modelLower)
+	modelKey := canonicalModelName(model)
+	pricing := lookupPricingAcrossPlatforms(lk.cache, groupID, lk.platform, modelKey)
 	if pricing == nil {
 		return nil
 	}
@@ -549,9 +557,9 @@ func checkRestricted(lk *channelLookup, groupID int64, model string) bool {
 	if !lk.channel.RestrictModels {
 		return false
 	}
-	modelLower := strings.ToLower(model)
-	// 使用与查找定价相同的跨平台逻辑
-	if lookupPricingAcrossPlatforms(lk.cache, groupID, lk.platform, modelLower) != nil {
+	modelKey := canonicalModelName(model)
+	// 使用与查找定价相同的跨平台逻辑（同样按 canonical 归一）
+	if lookupPricingAcrossPlatforms(lk.cache, groupID, lk.platform, modelKey) != nil {
 		return false
 	}
 	return true
@@ -566,6 +574,21 @@ func ReplaceModelInBody(body []byte, newModel string) []byte {
 		return body
 	}
 	newBody, err := sjson.SetBytes(body, "model", newModel)
+	if err != nil {
+		return body
+	}
+	return newBody
+}
+
+// RemovePreviousResponseIDFromBody 删除请求体中的 previous_response_id，用于会话失配时改用完整 input 重建上下文。
+func RemovePreviousResponseIDFromBody(body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	if !gjson.GetBytes(body, "previous_response_id").Exists() {
+		return body
+	}
+	newBody, err := sjson.DeleteBytes(body, "previous_response_id")
 	if err != nil {
 		return body
 	}
@@ -968,7 +991,8 @@ func detectConflicts(entries []modelEntry, platform, errCode, label string) erro
 		for j := i + 1; j < len(entries); j++ {
 			if conflictsBetween(entries[i], entries[j]) {
 				return infraerrors.BadRequest(errCode,
-					fmt.Sprintf("%s '%s' and '%s' conflict in platform '%s': overlapping match range",
+					fmt.Sprintf("%s '%s' and '%s' conflict in platform '%s': overlapping match range "+
+						"(model names are matched case-insensitively, so an existing entry already covers all case variants)",
 						label, entries[i].pattern, entries[j].pattern, platform))
 			}
 		}
