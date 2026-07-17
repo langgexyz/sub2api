@@ -60,6 +60,7 @@ type Handlers struct {
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
 	CCHub            *CCHubHandler
+	CCSession        *CCSessionHandler
 	BatchImage       *BatchImageHandler
 }
 
