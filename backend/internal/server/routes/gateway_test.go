@@ -1,10 +1,13 @@
 package routes
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/model"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -13,6 +16,29 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+// noRoutesRepo 是一个「没有任何跨组路由」的仓库假实现。
+//
+// 本测试只验「入口方言 x 组平台」的协议分支，不涉及跨组路由；但不能给
+// RegisterGatewayRoutes 传 nil service —— 那样一旦将来有人加一条带 model 的用例，
+// ResolveEffectiveGroup 就会在 nil 上取锁而空指针 panic，报错还指不到真正的原因。
+// 传一个真的空 service，让中间件走完整路径并如实得出「无路由」。
+type noRoutesRepo struct{}
+
+func (noRoutesRepo) ListByGroupID(context.Context, int64) ([]*model.GroupModelRoute, error) {
+	return nil, nil
+}
+func (noRoutesRepo) ListAll(context.Context) ([]*model.GroupModelRoute, error) { return nil, nil }
+func (noRoutesRepo) GetByID(context.Context, int64) (*model.GroupModelRoute, error) {
+	return nil, nil
+}
+func (noRoutesRepo) Create(context.Context, *model.GroupModelRoute) (*model.GroupModelRoute, error) {
+	return nil, nil
+}
+func (noRoutesRepo) Update(context.Context, *model.GroupModelRoute) (*model.GroupModelRoute, error) {
+	return nil, nil
+}
+func (noRoutesRepo) Delete(context.Context, int64) error { return nil }
 
 func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -41,6 +67,7 @@ func newGatewayRoutesTestRouter(platform ...string) *gin.Engine {
 		nil,
 		nil,
 		nil,
+		service.NewGroupModelRouteService(noRoutesRepo{}, nil),
 		nil,
 		&config.Config{},
 	)

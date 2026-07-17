@@ -85,6 +85,7 @@ func RegisterAdminRoutes(
 
 		// 错误透传规则管理
 		registerErrorPassthroughRoutes(admin, h)
+		registerGroupModelRouteRoutes(admin, h)
 
 		// TLS 指纹模板管理
 		registerTLSFingerprintProfileRoutes(admin, h)
@@ -619,6 +620,20 @@ func registerErrorPassthroughRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 		rules.POST("", h.Admin.ErrorPassthrough.Create)
 		rules.PUT("/:id", h.Admin.ErrorPassthrough.Update)
 		rules.DELETE("/:id", h.Admin.ErrorPassthrough.Delete)
+	}
+}
+
+// registerGroupModelRouteRoutes 注册跨组模型路由规则的管理端点 (issue #82)。
+// 这些规则决定「源分组的某个模型模式改由哪个目标分组调度」，是 docs/tech/cross-group-model-routing.md
+// 里的「选组」层；组内选账号仍归 groups.model_routing 管。
+func registerGroupModelRouteRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	routes := admin.Group("/group-model-routes")
+	{
+		routes.GET("", h.Admin.GroupModelRoute.List)
+		routes.GET("/:id", h.Admin.GroupModelRoute.GetByID)
+		routes.POST("", h.Admin.GroupModelRoute.Create)
+		routes.PUT("/:id", h.Admin.GroupModelRoute.Update)
+		routes.DELETE("/:id", h.Admin.GroupModelRoute.Delete)
 	}
 }
 

@@ -178,7 +178,7 @@ func classifyOpenAICompatibleNoAccountErrorFromGin(
 		apiKey,
 		routingModel,
 		displayModel,
-		openAICompatibleRequestPlatform(apiKey),
+		openAICompatibleRequestPlatform(c, apiKey),
 	)
 }
 

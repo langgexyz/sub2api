@@ -96,21 +96,70 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	}
 }
 
-func openAICompatibleRequestPlatform(apiKey *service.APIKey) string {
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGrok {
+// effectiveGroup 返回本请求生效的分组：跨组模型路由（issue #82）命中时是**目标分组**，
+// 否则是 key 绑定的源分组。
+//
+// 「生效分组」是所有「这个请求该按谁的策略/平台办」问题的唯一答案来源。凡是原先读
+// apiKey.Group 做平台或策略判定的地方都应改用它 —— 跨组之后，干活的是目标分组的账号，
+// 就该按目标分组的策略与协议来。
+func effectiveGroup(c *gin.Context, apiKey *service.APIKey) *service.Group {
+	if c != nil {
+		if group, ok := middleware2.GetEffectiveGroupFromContext(c); ok && group != nil {
+			return group
+		}
+	}
+	if apiKey != nil {
+		return apiKey.Group
+	}
+	return nil
+}
+
+// effectiveGroupPlatform 返回本请求生效的分组平台。
+//
+// 跨组路由命中时以**目标分组**为准：key 绑在 anthropic 组、发 grok-4.5 命中路由后，
+// 这里必须返回 grok，否则请求会被按 OpenAI 协议转换后发给 xAI 上游。
+func effectiveGroupPlatform(c *gin.Context, apiKey *service.APIKey) string {
+	// ctx 里的 platform 是中间件写的快照，优先用（省一次 gin ctx 取值与类型断言）。
+	if c != nil && c.Request != nil {
+		if platform, ok := c.Request.Context().Value(ctxkey.EffectiveGroupPlatform).(string); ok && platform != "" {
+			return platform
+		}
+	}
+	if group := effectiveGroup(c, apiKey); group != nil {
+		return group.Platform
+	}
+	return ""
+}
+
+func openAICompatibleRequestPlatform(c *gin.Context, apiKey *service.APIKey) string {
+	if effectiveGroupPlatform(c, apiKey) == service.PlatformGrok {
 		return service.PlatformGrok
 	}
 	return service.PlatformOpenAI
 }
 
-func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
-	if apiKey == nil || apiKey.Group == nil {
+// allowOpenAICompatibleMessagesDispatch 判断本请求能否用 /v1/messages（Anthropic 方言）
+// 打 OpenAI 兼容上游。
+//
+// 按**有效分组**判，不是源分组：谁的账号在服务，就按谁的策略。跨组路由把 gpt-* 导到
+// OpenAI 组时，该由 OpenAI 组自己声明「我的账号接不接 Anthropic 方言的请求」——
+// 聚合组的旗子跟哪个平台的账号在干活毫无关系，拿它做判据没有意义。
+//
+// grok 组免检是**上游的既定行为**（10e623f6 "allow grok messages compatibility"）：
+// grok 组开箱即用支持 /v1/messages。别把它当历史遗留清掉 —— 那会破坏现有 grok 用户
+// 并在每次上游同步时打架。这里只把「读源组」修成「读有效分组」。
+//
+// 其余平台要放行就把该组的 allow_messages_dispatch 显式设为 true。这个开关防的是
+// 「用户以为在用 Claude、其实被 ResolveMessagesDispatchModel 换成了别的模型」。
+func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
+	group := effectiveGroup(c, apiKey)
+	if group == nil {
 		return true
 	}
-	if apiKey.Group.Platform == service.PlatformGrok {
+	if group.Platform == service.PlatformGrok {
 		return true
 	}
-	return apiKey.Group.AllowMessagesDispatch
+	return group.AllowMessagesDispatch
 }
 
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler
@@ -299,7 +348,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -746,7 +795,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	)
 
 	// 检查分组是否允许 /v1/messages 调度
-	if !allowOpenAICompatibleMessagesDispatch(apiKey) {
+	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
 		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group does not allow /v1/messages dispatch")
 		return
@@ -806,7 +855,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -1458,7 +1507,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(apiKey)
+	requestPlatform := openAICompatibleRequestPlatform(c, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
