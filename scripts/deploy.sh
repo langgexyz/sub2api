@@ -91,10 +91,13 @@ log "image built: ${NEW_IMAGE}"
 log "starting green container on port ${GREEN_PORT}..."
 docker rm -f s2a-api-green 2>/dev/null || true
 
-# Inherit env from current blue container
-ENV_ARGS=$(docker inspect s2a-api \
-  --format '{{range .Config.Env}}-e "{{.}}" {{end}}' 2>/dev/null \
-  || echo "")
+# Env: 不从旧容器继承。docker inspect 输出经 shell 展开后引号成为字面量，
+# 每次部署给 env 再包一层引号，几十次部署后容器里全是引号垃圾、真实 env 为空
+# （运行配置实际来源是镜像内 /app/data/config.yaml，所以服务一直没坏）。
+# 需要 env 覆盖时写服务器上的 ${ENV_FILE}（KEY=VALUE 每行一条，支持 # 注释）。
+ENV_FILE="${HOME}/ccdirect.env"
+ENV_ARGS=""
+[ -f "${ENV_FILE}" ] && ENV_ARGS="--env-file ${ENV_FILE}"
 
 docker run -d \
   --name s2a-api-green \
