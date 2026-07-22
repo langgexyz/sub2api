@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +14,31 @@ import (
 
 	"github.com/imroc/req/v3"
 )
+
+const (
+	// sharedReqClientRetryCount 传输层错误的重试次数（共 count+1 次尝试）。
+	// 仅用于 OAuth token 端点这类低频调用，遮上游几分钟级的瞬时 EOF/抽风。
+	sharedReqClientRetryCount = 2
+	// sharedReqClientRetryBackoffMin/Max 重试退避区间。
+	sharedReqClientRetryBackoffMin = 200 * time.Millisecond
+	sharedReqClientRetryBackoffMax = 2 * time.Second
+)
+
+// shouldRetryTransientReqError 判定一次 req 调用是否值得重试。
+//
+// 只对**传输层错误**（EOF / 连接被切 / reset / 拨号失败等，err != nil 且没有拿到
+// HTTP 响应）重试；HTTP 4xx/5xx 是权威响应（err == nil），必须原样上抛，绝不重试
+// （token 端点的 invalid_grant/entitlement_denied 重试也没意义）。context 取消 /
+// 超时也不重试——调用方已放弃或整体超时已到。
+func shouldRetryTransientReqError(resp *req.Response, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	return true
+}
 
 // reqClientOptions 定义 req 客户端的构建参数
 type reqClientOptions struct {
@@ -59,6 +86,10 @@ func getSharedReqClient(opts reqClientOptions) (*req.Client, error) {
 	if trimmed != "" {
 		client.SetProxyURL(trimmed)
 	}
+	client = client.
+		SetCommonRetryCount(sharedReqClientRetryCount).
+		SetCommonRetryBackoffInterval(sharedReqClientRetryBackoffMin, sharedReqClientRetryBackoffMax).
+		SetCommonRetryCondition(shouldRetryTransientReqError)
 	client = instrumentReqClient(client)
 
 	actual, _ := sharedReqClients.LoadOrStore(key, client)
