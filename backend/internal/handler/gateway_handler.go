@@ -1076,20 +1076,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	// Fallback to default models
+	// Fallback to default models（统一走带 models.dev 能力字段的输出路径，
+	// 不再直接输出硬编码模型列表——后者缺 attachment/reasoning 能力字段，
+	// 且 ID 可能与 models.dev 目录脱节）。
 	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
+		writeOpenAIModelsList(c, defaultModelIDsForPlatform(service.PlatformOpenAI), apiKey.Group)
 		return
 	}
 
 	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
+		writeModelsList(c, service.PlatformGemini, defaultModelIDsForPlatform(service.PlatformGemini), apiKey.Group)
 		return
 	}
 	if platform == service.PlatformGrok {
@@ -1097,10 +1093,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   claude.DefaultModels,
-	})
+	writeModelsList(c, platform, defaultModelIDsForPlatform(platform), apiKey.Group)
 }
 
 func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
@@ -1263,6 +1256,7 @@ type grokModelListItem struct {
 	SupportsReasoningEffort bool                        `json:"supportsReasoningEffort,omitempty"`
 	ReasoningEffort         string                      `json:"reasoningEffort,omitempty"`
 	ReasoningEfforts        []grokReasoningEffortOption `json:"reasoningEfforts,omitempty"`
+	SupportsAttachments     bool                        `json:"supportsAttachments,omitempty"`
 }
 
 func writeGrokModelsList(c *gin.Context, modelIDs []string) {
@@ -1284,15 +1278,21 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 			}
 		}
 		item := grokModelListItem{Model: model}
-		if grokModelSupportsConfigurableReasoning(modelID) {
+		// 能力字段以 models.dev 为准（档位 + 附件），不再硬编码名单
+		if efforts := service.ModelReasoningEfforts(modelID); len(efforts) > 0 {
 			item.SupportsReasoningEffort = true
 			item.ReasoningEffort = "high"
-			item.ReasoningEfforts = []grokReasoningEffortOption{
-				{Value: "low", Label: "Low"},
-				{Value: "medium", Label: "Medium"},
-				{Value: "high", Label: "High", Default: true},
+			options := make([]grokReasoningEffortOption, 0, len(efforts))
+			for _, e := range efforts {
+				opt := grokReasoningEffortOption{Value: e, Label: effortLabel(e)}
+				if e == "high" {
+					opt.Default = true
+				}
+				options = append(options, opt)
 			}
+			item.ReasoningEfforts = options
 		}
+		item.SupportsAttachments = service.ModelSupportsAttachments(modelID)
 		models = append(models, item)
 	}
 
@@ -1300,15 +1300,6 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 		"object": "list",
 		"data":   models,
 	})
-}
-
-func grokModelSupportsConfigurableReasoning(modelID string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "grok-4.5", "grok-4.5-latest", "grok", "grok-latest", "grok-build", "grok-build-latest", "grok-build-0.1":
-		return true
-	default:
-		return false
-	}
 }
 
 // openAIModelsListItem 在 OpenAI 模型信息之上携带能力字段。

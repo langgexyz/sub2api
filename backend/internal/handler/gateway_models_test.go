@@ -346,7 +346,7 @@ func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gemini-2.5-flash", "ag-custom-model", "gpt-5.5"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gemini-2.5-flash", "gpt-5.5"}, modelIDsForTest(got.Data)) // ag-custom-model 不在 models.dev，被隐藏
 }
 
 func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t *testing.T) {
