@@ -1217,8 +1217,16 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string, group *
 		writeGrokModelsList(c, modelIDs)
 		return
 	}
-	models := make([]modelsListItem, 0, len(modelIDs))
+	// 统一 models.dev 模型目录：不在 models.dev 的自定义 ID（如 antigravity
+	// 档位变体 gemini-3-pro-high/low）不展示给客户端；显式请求仍可路由。
+	filtered := make([]string, 0, len(modelIDs))
 	for _, modelID := range modelIDs {
+		if service.IsModelDevKnownID(modelID) {
+			filtered = append(filtered, modelID)
+		}
+	}
+	models := make([]modelsListItem, 0, len(filtered))
+	for _, modelID := range filtered {
 		item := modelsListItem{
 			Model: claude.Model{
 				ID:          modelID,

@@ -11,7 +11,10 @@ func TestModelReasoningEfforts(t *testing.T) {
 		model string
 		want  []string
 	}{
-		{"deepseek 原生四档", "deepseek-v4-flash", []string{"low", "medium", "high", "max"}},
+		// models.dev 收录的模型以 models.dev 档位为准（deepseek-v4-flash 实测三档）
+		{"deepseek 收录走 models.dev 档位", "deepseek-v4-flash", []string{"low", "high", "max"}},
+		// 未收录模型走本地 deepseek-* 四档名单
+		{"deepseek 未收录走本地四档", "deepseek-v2.5", []string{"low", "medium", "high", "max"}},
 		{"deepseek 大写", "DeepSeek-V4-Pro", []string{"low", "medium", "high", "max"}},
 		{"glm 只报 z.ai 原生两档", "glm-5.2", []string{"high", "max"}},
 		{"gpt 常规", "gpt-5.4", []string{"low", "medium", "high", "xhigh"}},
