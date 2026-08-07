@@ -25,6 +25,10 @@ func TestModelsDevCapabilities(t *testing.T) {
 		{"gpt-5.6-luna", "gpt-5.6-luna", []string{"low", "medium", "high", "xhigh", "max"}, true},
 		// 收录但仅 toggle（无 effort 档位）→ 不支持可配置档位
 		{"kimi-k2.5", "kimi-k2.5", nil, true},
+		// 非 opencode provider 模型（google 等）能力同样来自 models.dev
+		{"gemini-2.5-pro", "gemini-2.5-pro", []string{"low", "medium", "high", "max"}, true},
+		{"gpt-5.6", "gpt-5.6", []string{"low", "medium", "high", "xhigh", "max"}, true},
+		{"grok-4.5", "grok-4.5", []string{"low", "medium", "high"}, true},
 	}
 	for _, tc := range cases {
 		tc := tc
