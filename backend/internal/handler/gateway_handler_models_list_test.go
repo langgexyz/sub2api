@@ -45,11 +45,11 @@ func TestWriteModelsListCapabilityFields(t *testing.T) {
 		wantAttach bool
 	}{
 		{
-			name:       "deepseek 带四档且禁附件",
+			name:       "deepseek 带 models.dev 三档且禁附件",
 			modelIDs:   []string{"deepseek-v4-flash"},
 			wantID:     "deepseek-v4-flash",
 			wantEffort: true,
-			wantValues: []string{"low", "medium", "high", "max"},
+			wantValues: []string{"low", "high", "max"},
 			wantAttach: false,
 		},
 		{
@@ -65,7 +65,7 @@ func TestWriteModelsListCapabilityFields(t *testing.T) {
 			group:      &service.Group{MaxReasoningEffort: "high"},
 			wantID:     "deepseek-v4-flash",
 			wantEffort: true,
-			wantValues: []string{"low", "medium", "high"},
+			wantValues: []string{"low", "high"},
 			wantAttach: false,
 		},
 	}
