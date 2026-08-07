@@ -23,6 +23,11 @@ import "strings"
 //   - grok 名单：low/medium/high（与 grokModelSupportsConfigurableReasoning 同源）
 //   - 其它模型（longcat 等长尾）：不支持，返回 nil
 func ModelReasoningEfforts(modelID string) []string {
+	// models.dev（opencode provider）收录的模型以 models.dev 档位为准
+	// （reasoning_options type=effort 的 values），收录但无档位 → 不支持可配置。
+	if efforts, found := modelsDevEfforts(modelID); found {
+		return efforts
+	}
 	id := strings.ToLower(strings.TrimSpace(modelID))
 	switch {
 	case strings.HasPrefix(id, "deepseek-"):
@@ -42,10 +47,12 @@ func ModelReasoningEfforts(modelID string) []string {
 }
 
 // ModelSupportsAttachments 判断模型族是否支持图片输入。
-// true = 视觉模型族（claude / gpt / o 系列 / gemini / grok）；
-// 其余（deepseek / glm / kimi / minimax / qwen / 长尾模型）默认 false——
-// 保守禁图，避免 opencode 允许贴图后请求被上游 400。
+// models.dev（opencode provider）收录的模型以 models.dev attachment 字段为准；
+// 未收录走本地保守名单。
 func ModelSupportsAttachments(modelID string) bool {
+	if attachment, found := modelsDevAttachments(modelID); found {
+		return attachment
+	}
 	id := strings.ToLower(strings.TrimSpace(modelID))
 	switch {
 	case strings.HasPrefix(id, "claude-"),
