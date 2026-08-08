@@ -1039,6 +1039,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		// 跨组模型路由（issue #82）：把路由目标分组的模型并进 composite 列表。
+		// 漏了这一步，聚合组只显示本组账号的模型——配置了 claude-*/grok-* 等
+		// 路由却一个都看不到（线上实测 group 6 只剩 3 个本组模型）。
+		if groupID != nil {
+			availableModels = append(availableModels, h.routedModels(c, *groupID)...)
+			availableModels = dedupeStringsPreservingOrder(availableModels)
+		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
 			writeCustomModelsList(c, service.PlatformComposite, availableModels, apiKey.Group)
