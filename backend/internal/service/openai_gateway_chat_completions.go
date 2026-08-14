@@ -306,9 +306,9 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	var result *OpenAIForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleChatStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, len(body))
+		result, handleErr = s.handleChatStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, len(body), openAIChatRequestHasTools(body))
 	} else {
-		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleChatBufferedStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime, openAIChatRequestHasTools(body))
 	}
 
 	// cyber_policy：标记已设、error 已按 Chat Completions 格式发给客户端。丢弃 result、
@@ -407,6 +407,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	billingModel string,
 	upstreamModel string,
 	startTime time.Time,
+	requestHasTools bool,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 
@@ -463,6 +464,10 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// When the terminal event has an empty output array, reconstruct from
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
+	if requestHasTools && responsesContainsDSMLToolCall(finalResponse) {
+		payload, _ := json.Marshal(finalResponse)
+		return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, dsmlToolCallProtocolErrorMessage)
+	}
 
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, originalModel)
 
@@ -498,6 +503,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	upstreamModel string,
 	startTime time.Time,
 	requestBodyLen int,
+	requestHasTools bool,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
@@ -517,6 +523,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
+	dsmlGuard := newResponsesDSMLToolCallGuard(requestHasTools)
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
@@ -795,7 +802,34 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		if strings.TrimSpace(payload) == "[DONE]" {
 			return false
 		}
-		return processDataLine(payload)
+		payloads, detected := dsmlGuard.Filter(payload)
+		if detected {
+			if !clientOutputStarted && !c.Writer.Written() {
+				streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, []byte(payload), dsmlToolCallProtocolErrorMessage)
+				return true
+			}
+			if !clientDisconnected {
+				errorPayload, _ := json.Marshal(gin.H{
+					"error": gin.H{
+						"type":    "upstream_protocol_error",
+						"message": dsmlToolCallProtocolErrorMessage,
+					},
+				})
+				if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", errorPayload); err != nil {
+					clientDisconnected = true
+				} else {
+					c.Writer.Flush()
+				}
+			}
+			streamNonFailoverErr = fmt.Errorf("%s", dsmlToolCallProtocolErrorMessage)
+			return true
+		}
+		for _, candidate := range payloads {
+			if processDataLine(candidate) {
+				return true
+			}
+		}
+		return false
 	}
 
 	// Determine keepalive interval
