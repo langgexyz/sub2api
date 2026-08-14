@@ -30,9 +30,10 @@ type openAIChatSilentRefusalDetector struct {
 	finishReason    string
 }
 
-func newOpenAIChatSilentRefusalDetector(requestBodyLen int) *openAIChatSilentRefusalDetector {
+func newOpenAIChatSilentRefusalDetector(requestBodyLen int, requestHasTools bool) *openAIChatSilentRefusalDetector {
 	return &openAIChatSilentRefusalDetector{
-		enabled: requestBodyLen >= openAISilentRefusalMinRequestBodyBytes,
+		// 工具回合的空完成无法让客户端继续执行，独立于上下文大小必须切账号。
+		enabled: requestHasTools || requestBodyLen >= openAISilentRefusalMinRequestBodyBytes,
 	}
 }
 

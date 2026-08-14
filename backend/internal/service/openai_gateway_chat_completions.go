@@ -520,7 +520,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingSSE := make([]string, 0, 4)
-	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen, requestHasTools)
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
 	dsmlGuard := newResponsesDSMLToolCallGuard(requestHasTools)
