@@ -128,6 +128,40 @@ func TestHandleChatStreamingResponse_DSMLEncodedToolCallFailsOverBeforeOutput(t 
 	require.NotContains(t, rec.Body.String(), "DSML")
 }
 
+func TestHandleChatStreamingResponse_SmallToolRequestSilentRefusalFailsOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_silent_small_tool"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_silent\",\"status\":\"completed\"}}\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+
+	result, err := svc.handleChatStreamingResponse(
+		resp,
+		c,
+		&Account{ID: 1, Name: "openai-apikey", Platform: PlatformOpenAI},
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		time.Now(),
+		1,
+		true,
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Nil(t, result)
+	require.True(t, IsOpenAISilentRefusalErrorBody(failoverErr.ResponseBody))
+	require.False(t, c.Writer.Written())
+}
+
 func TestHandleChatBufferedStreamingResponse_DSMLEncodedToolCallFailsOver(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
