@@ -76,6 +76,7 @@ func TestHandleChatStreamingResponse_ClassifiesHTTP2ReadError(t *testing.T) {
 		"gpt-5.6-sol",
 		time.Now(),
 		0,
+		false,
 	)
 
 	require.Error(t, err)
@@ -87,6 +88,87 @@ func TestHandleChatStreamingResponse_ClassifiesHTTP2ReadError(t *testing.T) {
 	require.Equal(t, "Upstream HTTP/2 stream failed", message)
 	require.NotContains(t, message, "stream ID")
 	require.NotContains(t, message, "INTERNAL_ERROR")
+}
+
+func TestHandleChatStreamingResponse_DSMLEncodedToolCallFailsOverBeforeOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+			"x-request-id": []string{"upstream-rid"},
+		},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_text.delta\",\"delta\":\"<\\uff5cDSML\\uff5ctool_\"}\n\n" +
+				"data: {\"type\":\"response.output_text.delta\",\"delta\":\"calls>\"}\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+
+	result, err := svc.handleChatStreamingResponse(
+		resp,
+		c,
+		&Account{ID: 1, Name: "openai-apikey", Platform: PlatformOpenAI},
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		time.Now(),
+		0,
+		true,
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.NotContains(t, rec.Body.String(), "DSML")
+}
+
+func TestHandleChatBufferedStreamingResponse_DSMLEncodedToolCallFailsOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_dsml\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"<\\uff5cDSML\\uff5ctool_calls>\"}]}]}}\n\n",
+		)),
+	}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+
+	result, err := svc.handleChatBufferedStreamingResponse(
+		resp,
+		c,
+		&Account{ID: 1, Name: "openai-apikey", Platform: PlatformOpenAI},
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-flash",
+		time.Now(),
+		true,
+	)
+
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.NotContains(t, rec.Body.String(), "DSML")
+}
+
+func TestResponsesDSMLToolCallGuard_IgnoresTextWithoutTools(t *testing.T) {
+	payload := `{"type":"response.output_text.delta","delta":"<\uff5cDSML\uff5ctool_calls>"}`
+	guard := newResponsesDSMLToolCallGuard(false)
+
+	payloads, detected := guard.Filter(payload)
+
+	require.False(t, detected)
+	require.Equal(t, []string{payload}, payloads)
 }
 
 func TestNormalizeResponsesRequestServiceTier(t *testing.T) {
