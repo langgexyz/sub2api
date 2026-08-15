@@ -1,0 +1,56 @@
+name: CCDirect Image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # upstream mirrors must not publish the private ccdirect production image.
+    if: github.repository == 'langgexyz/sub2api'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image
+        run: |
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Publish immutable deployment reference
+        run: |
+          printf 'image=%s\n' '${{ steps.image.outputs.ref }}'
+          printf 'digest=%s\n' '${{ steps.build.outputs.digest }}'
+          printf 'commit=%s\n' '${{ github.sha }}'
+          {
+            echo '## CCDirect deployment image'
+            echo
+            echo "- image: \`${{ steps.image.outputs.ref }}\`"
+            echo "- digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- commit: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
