@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -278,6 +279,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen, requestHasTools)
+	// 工具参数退化守卫（IK8VPN）。raw 路径不做协议转换，chunk 是 CC 原生形状，
+	// 故用 observeRawChatToolArgs 解析（与 Responses 路径的事件结构不同）。
+	toolArgsGuard := newToolArgsDegenerationGuard(requestHasTools)
+	var toolArgsDegenerated bool
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -317,6 +322,16 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
+				// 工具参数退化：在写给客户端【之前】判定，命中即停止透传。
+				if reason := observeRawChatToolArgs(toolArgsGuard, payload); reason != "" {
+					logger.L().Warn("openai chat_completions raw: tool args degeneration",
+						zap.String("reason", reason),
+						zap.Int64("account_id", account.ID),
+						zap.String("request_id", requestID),
+					)
+					toolArgsDegenerated = true
+					break
+				}
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
@@ -338,6 +353,27 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if !clientDisconnected && clientOutputStarted {
 			c.Writer.Flush()
 		}
+	}
+
+	// 工具参数退化的处置（IK8VPN），与 Responses 路径同语义：
+	// 首 token 前 -> 切账号重试（用户无感，退化是概率性的）；已输出 -> 协议错误终止。
+	// 必须在下面的正常收尾逻辑【之前】返回，否则 pendingLines 会把退化产物补发出去。
+	if toolArgsDegenerated {
+		if !clientOutputStarted && !c.Writer.Written() {
+			return nil, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, toolArgsDegenerationErrorMessage)
+		}
+		if !clientDisconnected {
+			errorPayload, _ := json.Marshal(gin.H{
+				"error": gin.H{
+					"type":    "upstream_protocol_error",
+					"message": toolArgsDegenerationErrorMessage,
+				},
+			})
+			if _, werr := c.Writer.WriteString("data: " + string(errorPayload) + "\n\n"); werr == nil {
+				c.Writer.Flush()
+			}
+		}
+		return nil, fmt.Errorf("%s", toolArgsDegenerationErrorMessage)
 	}
 
 	if err := scanner.Err(); err != nil {

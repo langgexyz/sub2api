@@ -524,6 +524,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	var streamFailoverErr *UpstreamFailoverError
 	var streamNonFailoverErr error
 	dsmlGuard := newResponsesDSMLToolCallGuard(requestHasTools)
+	// 工具参数退化守卫（IK8VPN）：与 DSML 守卫并列 —— 时机相同、处置相同，判据不同。
+	// DSML 判「文本里混进了工具调用」，本守卫判「工具参数本身的结构已退化」。
+	toolArgsGuard := newToolArgsDegenerationGuard(requestHasTools)
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
@@ -797,6 +800,30 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	missingTerminalErr := func() (*OpenAIForwardResult, error) {
 		return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 	}
+	// 协议退化的统一处置：首 token 前切账号（用户无感，退化是概率性的，换账号大概率正常）；
+	// 已开始输出则发协议错误终止，不把退化产物继续透传。DSML 守卫与工具参数守卫共用。
+	handleProtocolDegeneration := func(payload string, message string) bool {
+		if !clientOutputStarted && !c.Writer.Written() {
+			streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, []byte(payload), message)
+			return true
+		}
+		if !clientDisconnected {
+			errorPayload, _ := json.Marshal(gin.H{
+				"error": gin.H{
+					"type":    "upstream_protocol_error",
+					"message": message,
+				},
+			})
+			if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", errorPayload); err != nil {
+				clientDisconnected = true
+			} else {
+				c.Writer.Flush()
+			}
+		}
+		streamNonFailoverErr = fmt.Errorf("%s", message)
+		return true
+	}
+
 	processFrame := func(frame openAICompatSSEFrame) bool {
 		payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
 		if strings.TrimSpace(payload) == "[DONE]" {
@@ -804,25 +831,17 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 		payloads, detected := dsmlGuard.Filter(payload)
 		if detected {
-			if !clientOutputStarted && !c.Writer.Written() {
-				streamFailoverErr = s.newOpenAIStreamFailoverError(c, account, false, requestID, []byte(payload), dsmlToolCallProtocolErrorMessage)
-				return true
-			}
-			if !clientDisconnected {
-				errorPayload, _ := json.Marshal(gin.H{
-					"error": gin.H{
-						"type":    "upstream_protocol_error",
-						"message": dsmlToolCallProtocolErrorMessage,
-					},
-				})
-				if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", errorPayload); err != nil {
-					clientDisconnected = true
-				} else {
-					c.Writer.Flush()
-				}
-			}
-			streamNonFailoverErr = fmt.Errorf("%s", dsmlToolCallProtocolErrorMessage)
-			return true
+			return handleProtocolDegeneration(payload, dsmlToolCallProtocolErrorMessage)
+		}
+		// 工具参数退化：只看 function_call_arguments.delta，按 output_index 分路累积。
+		// 放在 DSML 之后、下发之前 —— 命中即终止，退化产物不进客户端。
+		if reason := observeToolArgsFrame(toolArgsGuard, payload); reason != "" {
+			logger.FromContext(c.Request.Context()).Warn("openai chat_completions stream: tool args degeneration",
+				zap.String("reason", reason),
+				zap.Int64("account_id", account.ID),
+				zap.String("upstream_request_id", requestID),
+			)
+			return handleProtocolDegeneration(payload, toolArgsDegenerationErrorMessage)
 		}
 		for _, candidate := range payloads {
 			if processDataLine(candidate) {
