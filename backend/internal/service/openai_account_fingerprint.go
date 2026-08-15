@@ -58,9 +58,15 @@ func accountFingerprint(secret string, accountID int64) string {
 		return ""
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(accountFingerprintContext))
-	mac.Write([]byte{0}) // 域分隔符，避免 context 与 id 拼接产生歧义
-	mac.Write([]byte(strconv.FormatInt(accountID, 10)))
+	if _, err := mac.Write([]byte(accountFingerprintContext)); err != nil {
+		return ""
+	}
+	if _, err := mac.Write([]byte{0}); err != nil { // 域分隔符，避免 context 与 id 拼接产生歧义
+		return ""
+	}
+	if _, err := mac.Write([]byte(strconv.FormatInt(accountID, 10))); err != nil {
+		return ""
+	}
 	return hex.EncodeToString(mac.Sum(nil))[:accountFingerprintHexLen]
 }
 
