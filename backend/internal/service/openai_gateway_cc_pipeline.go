@@ -46,6 +46,17 @@ func (s *OpenAIGatewayService) newUpstreamSSEScanner(r io.Reader) *bufio.Scanner
 // 上游响应头并写入标准 SSE 头 + 200 状态码，后续调用为 no-op。延迟到首个事件
 // 写出前才提交响应头，使上游早期失败仍可改走 failover 或非流式错误响应。
 func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream http.Header) func() {
+	return s.newStreamHeaderWriterForAccount(c, upstream, nil)
+}
+
+// newStreamHeaderWriterForAccount 同上，并额外写入账号指纹响应头（IK8VUZ）。
+//
+// account 为 nil 时行为与 newStreamHeaderWriter 完全一致 —— 便于尚未接入的调用方
+// 保持原样，不强制一次性改完所有路径。
+//
+// 为什么挂在这里：本闭包是所有流式路径【共用】的头写入器，在此注入一处即可覆盖
+// 全部 SSE 转发；且它天然保证在响应体之前执行（HTTP 头随首个 chunk 发出后就改不了）。
+func (s *OpenAIGatewayService) newStreamHeaderWriterForAccount(c *gin.Context, upstream http.Header, account *Account) func() {
 	headersWritten := false
 	return func() {
 		if headersWritten {
@@ -54,6 +65,9 @@ func (s *OpenAIGatewayService) newStreamHeaderWriter(c *gin.Context, upstream ht
 		headersWritten = true
 		if s.responseHeaderFilter != nil {
 			responseheaders.WriteFilteredHeaders(c.Writer.Header(), upstream, s.responseHeaderFilter)
+		}
+		if account != nil && s.cfg != nil {
+			setAccountFingerprintHeader(c.Writer.Header(), s.cfg.JWT.Secret, account)
 		}
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")

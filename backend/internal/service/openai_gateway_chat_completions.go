@@ -506,7 +506,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	requestHasTools bool,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
-	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
+	writeStreamHeaders := s.newStreamHeaderWriterForAccount(c, resp.Header, account)
 
 	state := apicompat.NewResponsesEventToChatState()
 	state.Model = originalModel
