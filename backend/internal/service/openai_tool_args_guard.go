@@ -36,17 +36,27 @@ import (
 const toolArgsDegenerationErrorMessage = "Upstream emitted a degenerated tool call payload (protocol fragment / runaway repetition / oversized field)"
 
 const (
-	// 单个字符串字段的长度上限。真实工具参数（路径、命令、查询串）远低于此；
-	// 现场退化样本 210 起步，实测最大 5896。
-	maxToolArgFieldLen = 4096
+	// 单个字符串字段的长度上限。
+	//
+	// 原值 4096 是按「参数只会是路径 / 命令 / 查询串」估的，对编码类工具不成立
+	// （IK8Z7J）：写文件的 content、编辑代码的多行片段轻易超过它，属合法调用。
+	// 现提到接近总长上限，只兜住明显失控的单字段，长度不再充当主判据 ——
+	// 真正的退化由协议残片与失控重复负责识别。
+	maxToolArgFieldLen = 32768
 
 	// 整个 arguments 的长度上限。留足余量给合法的大 payload（如长文本编辑），
 	// 只拦明显失控的。
 	maxToolArgsTotalLen = 65536
 
-	// 同一子串连续重复的次数上限。`./././.`、`../../..` 是复读退化的典型形态；
+	// 多字符子串连续重复的次数上限。`./././.`、`../../..` 是复读退化的典型形态；
 	// 少量重复是合法相对路径，所以按【连续次数】判而不是禁用。
 	maxToolArgRepeatRun = 16
+
+	// 单字符连续重复的次数上限，显著高于多字符阈值（IK8Z7J）。
+	// 单字符重复在合法内容里极常见：深缩进、Markdown 分隔线、对齐填充、
+	// 分节符都会连续出现几十个相同字符。而复读退化的特征是【多字符片段】
+	// 反复出现（现场样本 `./` 重复上千次），用多字符阈值即可捕获。
+	maxToolArgSingleCharRepeatRun = 256
 )
 
 // 协议残片：训练语料里的工具调用协议标记被当作普通文本吐进了参数值。
@@ -60,30 +70,76 @@ var toolArgsProtocolFragment = regexp.MustCompile(
 // 为什么不用正则：Go 的 regexp 是 RE2，【不支持反向引用】，`(.{1,8})\1{16,}` 直接
 // 编译失败。改为显式扫描，顺带避免了正则在超长输入上的回溯风险。
 //
-// 判据：对 1..8 字符的窗口，检查是否有连续重复超过 maxToolArgRepeatRun 次。
+// 判据：对 1..8 字符的窗口，检查是否有连续重复超过阈值。
 // 少量重复是合法的（`../..`），只拦失控的（现场样本 `./` 重复上千次）。
+//
+// 两处放宽（IK8Z7J，避免误伤编码类工具的合法参数）：
+//  1. 单字符重复用更高的阈值 —— 深缩进、Markdown 分隔线、对齐填充天然会有
+//     几十个连续相同字符，用多字符阈值判会把正常排版判成退化。
+//  2. 重复单元【全为空白】时一律放行 —— 生成 YAML / JSON / XML 时的深层缩进
+//     可以任意长，且空白重复不具备退化信号意义。
 func hasRunawayRepeat(s string) bool {
 	n := len(s)
 	if n < 2*maxToolArgRepeatRun {
 		return false
 	}
 	for unit := 1; unit <= 8; unit++ {
+		// 阈值随重复单元的形态变化，不再随 unit 单调，因此用 continue 而非
+		// break，否则会跳过后续本可命中的窗口。
 		if n < unit*(maxToolArgRepeatRun+1) {
-			break
+			continue
 		}
 		run := 1
 		for i := unit; i+unit <= n; i += unit {
-			if s[i:i+unit] == s[i-unit:i] {
-				run++
-				if run > maxToolArgRepeatRun {
-					return true
-				}
-			} else {
+			if s[i:i+unit] != s[i-unit:i] {
 				run = 1
+				continue
+			}
+			run++
+			unitStr := s[i-unit : i]
+			if isAllWhitespace(unitStr) {
+				continue // 缩进类重复一律放行
+			}
+			limit := maxToolArgRepeatRun
+			if isUniformBytes(unitStr) {
+				// 单一字符构成的重复单元（`-` / `--` / `----` 皆是）走高阈值：
+				// 同一条分隔线会在多个 unit 窗口下同时构成重复，只豁免 unit==1
+				// 挡不住，必须按【单元的字符构成】判而不是按窗口宽度判。
+				limit = maxToolArgSingleCharRepeatRun
+			}
+			if run > limit {
+				return true
 			}
 		}
 	}
 	return false
+}
+
+// isAllWhitespace 报告子串是否全部由空白字符构成。
+// 用于豁免缩进类重复，见 hasRunawayRepeat 的说明。
+func isAllWhitespace(s string) bool {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r':
+		default:
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// isUniformBytes 报告子串是否由同一个字节重复构成。
+// 用于把分隔线 / 填充这类重复归入单字符阈值，见 hasRunawayRepeat 的说明。
+func isUniformBytes(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] != s[0] {
+			return false
+		}
+	}
+	return true
 }
 
 // toolArgsDegenerationReason 判断一段 tool_call.arguments 是否已退化。
@@ -124,12 +180,23 @@ func toolArgsDegenerationReason(arguments string) string {
 	return ""
 }
 
-// hasControlChars 判断字符串是否含 C0 控制字符（含 NUL / 换行 / 制表符）。
-// 真实的工具参数值不含这些；换行还兼具命令注入风险。
+// hasControlChars 判断字符串是否含【异常】控制字符。
+//
+// 换行 / 回车 / 制表符【必须放行】（IK8Z7J）：本函数作用在 json.Unmarshal 解码
+// 【之后】的字段真实值上，而写文件的 content、编辑代码的 oldString/newString、
+// heredoc 脚本、带正文的提交信息，其参数天然含换行与缩进制表符 —— 这些是编码类
+// 工具最高频的合法调用形态。此前把三者判为退化，导致正常写码请求被整条流终止，
+// 且错误呈现为 upstream_protocol_error，把责任误指给上游账号。
+//
+// 「换行兼防命令注入」不成立：网关不是命令执行层，注入防护属于客户端工具执行
+// 边界；bash 命令本就可以合法含换行，在此拦截等于禁掉多行脚本。
+//
+// 仍然拦截的是真正不该出现在文本参数里的：NUL、其余 C0 控制字符、DEL、
+// 零宽与格式控制符。
 func hasControlChars(s string) bool {
 	for _, r := range s {
-		if r == '\n' || r == '\r' || r == '\t' || r == 0 {
-			return true
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue // 合法的文本内容字符，见上方说明
 		}
 		if r < 0x20 || r == 0x7F {
 			return true

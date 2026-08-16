@@ -45,10 +45,12 @@ func TestToolArgsDegeneration_Positive(t *testing.T) {
 			`{"workdir":"/srv/proj/` + strings.Repeat("../", 40) + `"}`},
 		{"单字段超长",
 			`{"workdir":"/` + strings.Repeat("a", maxToolArgFieldLen+1) + `"}`},
-		{"字段含换行（兼防命令注入）",
-			`{"workdir":"/tmp/a\nrm -rf /"}`},
-		{"字段含制表符",
-			`{"workdir":"/tmp/a\tb"}`},
+		{"字段含 NUL",
+			`{"workdir":"/tmp/a\u0000b"}`},
+		{"字段含退格等 C0 控制字符",
+			`{"workdir":"/tmp/a\u0008b"}`},
+		{"字段含零宽格式控制符",
+			`{"workdir":"/tmp/a\u200bb"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,6 +70,14 @@ func TestToolArgsDegeneration_Positive(t *testing.T) {
 func TestToolArgsDegeneration_NegativeMustNotTrip(t *testing.T) {
 	t.Parallel()
 
+	// 真实的长文件内容：各行互不相同，用于验证长度不再充当主判据。
+	var longContent strings.Builder
+	for i := 0; i < 500; i++ {
+		longContent.WriteString("line ")
+		longContent.WriteString(strconv.Itoa(i))
+		longContent.WriteString(": handle request and write response\n")
+	}
+
 	cases := []struct {
 		name string
 		args string
@@ -84,6 +94,27 @@ func TestToolArgsDegeneration_NegativeMustNotTrip(t *testing.T) {
 		{"韩文目录名", `{"workdir":"/srv/proj/문서/프로젝트"}`},
 		{"日文目录名", `{"workdir":"/srv/proj/ドキュメント/プロジェクト"}`},
 		{"俄文目录名", `{"workdir":"/srv/proj/Документы/проект"}`},
+
+		// --- 以下锁死「编码类工具的多行参数不得判退化」（IK8Z7J 回归）---
+		//
+		// 这些是写码会话里最高频的工具调用形态。此前判据把 \n / \r / \t 当退化
+		// 信号，导致它们在生产上被整条流终止，并错误呈现为 upstream_protocol_error。
+		{"Write 写入多行文件内容",
+			`{"filePath":"/srv/app/main.go","content":"package main\n\nfunc main() {\n\tprintln(1)\n}\n"}`},
+		{"Edit 替换多行代码块",
+			`{"filePath":"/srv/app/a.ts","oldString":"function a() {\n  return 1\n}","newString":"function a() {\n  return 2\n}"}`},
+		{"Bash heredoc 多行脚本",
+			`{"command":"cat <<'EOF' > /tmp/a.txt\nline1\nline2\nEOF"}`},
+		{"提交信息含规范要求的多行正文",
+			`{"command":"git commit -m \"fix: 修复解析\n\nWhy: 上游返回空字段\nTest: go test ./...\""}`},
+		{"Makefile 制表符缩进",
+			`{"filePath":"/srv/app/Makefile","content":"build:\n\tgo build ./...\n"}`},
+		{"深缩进 YAML（空白重复不得判退化）",
+			`{"filePath":"/srv/k8s/deploy.yaml","content":"spec:\n` + strings.Repeat(" ", 64) + `- name: api\n"}`},
+		{"Markdown 分隔线（单字符重复不得判退化）",
+			`{"filePath":"/srv/README.md","content":"# T\n\n` + strings.Repeat("-", 80) + `\n"}`},
+		{"长文件内容（超过旧的 4096 单字段上限）",
+			`{"filePath":"/srv/app/big.txt","content":` + jsonQuote(longContent.String()) + `}`},
 
 		// --- fail-open：不完整/非字符串不判退化 ---
 		{"流式累积中的不完整 JSON", `{"command":"sleep 600","workdir":"/srv/proj/Doc`},
