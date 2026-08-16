@@ -1,0 +1,49 @@
+# sub2api 项目元信息（DI 注入源）—— fork 工作模式。
+#
+# 真 trunk 在 fork 远端（fork-main，跟踪 https://github.com/langgexyz/sub2api）；
+# 本地 origin 是弃用镜像（Wei-Shaw/sub2api）。wt / merge-gate / check-runner 都靠
+# 这份文件自报家门，否则：wt 从错误的远端拉 worktree、merge-gate 无产物可判。
+#
+# issue 开在 Gitee 企业看板（跟本仓同企业），id 形如 IKxxxxx。
+repo:
+  dev_branch: fork-main
+  remote: fork
+
+issue:
+  id_pattern: '\b[A-Z0-9]{6}\b'
+
+gates:
+  merge:
+    # 合并前 merge-gate 跑的最小测试面。真正执行走下面 check-runner 的 checks
+    # 清单；test_command 是给不认 checks 的旧调用方留的入口。
+    test_command: "cd backend && go test ./internal/service/..."
+
+targets:
+  local-shell:
+    runner: local
+    allow_mutation: true
+
+environments:
+  local:
+    targets:
+      workstation: local-shell
+
+checks:
+  # 后端单元测试（核心服务逻辑）。merge gate 必须真跑过。
+  # go test 成功输出 `ok <pkg>` 行、失败输出 `--- FAIL` —— ran_pattern 两个都认，
+  # 保证命令真跑了（退出码 0 但没跑到测试的假绿被拒）。
+  - name: unit
+    run: "cd backend && go test ./internal/service/..."
+    slot: workstation
+    mutates: false
+    gates: [merge_gate]
+    ran_pattern: '^(ok|FAIL|--- FAIL)'
+    timeout: 900
+  # 编译面：全量 go build 保证可构建（deploy + merge 都要过）。
+  # go build 成功时无输出，退退出码判定（失败必非零），故不设 ran_pattern。
+  - name: build
+    run: "cd backend && go build ./..."
+    slot: workstation
+    mutates: false
+    gates: [deploy, merge_gate]
+    timeout: 600
