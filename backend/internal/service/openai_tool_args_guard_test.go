@@ -8,11 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 现场真实退化产物（IK8VCE，2026-08-14）。逐字取自 OpenCode 会话记录
+// 现场真实退化产物（IK8VCE，2026-08-14）。取自 OpenCode 会话记录
 // part prt_fff10d05e001zHD62X4Z1dcBDq —— 模型把它填进了 bash 工具的 workdir 参数。
+// 仅家目录前缀做了中性化（真实用户名不进开放仓），退化特征位于其后的协议残片部分，
+// 不受影响。
 // 注意它【不含控制字符】、长度未超 PATH_MAX、且因串里恰好有 `/`，切出的父目录真实存在
 // —— 只靠「字符合法 + 路径存在」判不出来，必须靠协议残片这个信号。
-const realDegeneratedWorkdir = `/Users/zero/Documents/Git...】【。】【”】【json error? tool call must proper. ` +
+const realDegeneratedWorkdir = `/srv/proj/Documents/Git...】【。】【”】【json error? tool call must proper. ` +
 	`Need execute. +#+#+#+#+#+ assistant to=functions.bash av不卡免费播放  福利彩票天天彩 ` +
 	`北京赛车微信? Let's do.numerusform to=functions.bash კომენტary _日本一级特黄大片{`
 
@@ -32,15 +34,15 @@ func TestToolArgsDegeneration_Positive(t *testing.T) {
 		args string
 	}{
 		{"协议残片 assistant to=functions",
-			`{"workdir":"/Users/zero/x assistant to=functions.bash 天天彩票"}`},
+			`{"workdir":"/srv/proj/x assistant to=functions.bash 天天彩票"}`},
 		{"协议残片 json error?",
 			`{"path":"/tmp/a json error? tool call must proper"}`},
 		{"DSML 风格标签混入参数",
 			`{"path":"/tmp/<|DSML|tool_calls>"}`},
 		{"复读型 ./ 重复",
-			`{"workdir":"/Users/zero/Documents/Git/` + strings.Repeat("./", 300) + `"}`},
+			`{"workdir":"/srv/proj/Documents/Git/` + strings.Repeat("./", 300) + `"}`},
 		{"复读型 ../ 重复",
-			`{"workdir":"/Users/zero/` + strings.Repeat("../", 40) + `"}`},
+			`{"workdir":"/srv/proj/` + strings.Repeat("../", 40) + `"}`},
 		{"单字段超长",
 			`{"workdir":"/` + strings.Repeat("a", maxToolArgFieldLen+1) + `"}`},
 		{"字段含换行（兼防命令注入）",
@@ -70,21 +72,21 @@ func TestToolArgsDegeneration_NegativeMustNotTrip(t *testing.T) {
 		name string
 		args string
 	}{
-		{"常规路径", `{"command":"ls -la","workdir":"/Users/zero/Documents/GitHub/sub2api"}`},
+		{"常规路径", `{"command":"ls -la","workdir":"/srv/proj/Documents/GitHub/sub2api"}`},
 		{"相对路径", `{"command":"pwd","workdir":"."}`},
-		{"中文目录名", `{"workdir":"/Users/zero/文档/项目目录"}`},
-		{"含空格目录名", `{"workdir":"/Users/zero/My Documents/a b"}`},
-		{"少量 .. 是合法相对路径", `{"workdir":"/Users/zero/a/../b/../c"}`},
+		{"中文目录名", `{"workdir":"/srv/proj/文档/项目目录"}`},
+		{"含空格目录名", `{"workdir":"/srv/proj/My Documents/a b"}`},
+		{"少量 .. 是合法相对路径", `{"workdir":"/srv/proj/a/../b/../c"}`},
 
 		// --- 以下五条锁死「不得按词表/字符集判定」---
 		{"业务词：用户在做彩票系统", `{"path":"/srv/lottery/彩票销售系统/config.yaml"}`},
 		{"技术词：Qt 国际化文件", `{"path":"/srv/app/i18n/numerusform.ts"}`},
-		{"韩文目录名", `{"workdir":"/Users/zero/문서/프로젝트"}`},
-		{"日文目录名", `{"workdir":"/Users/zero/ドキュメント/プロジェクト"}`},
-		{"俄文目录名", `{"workdir":"/Users/zero/Документы/проект"}`},
+		{"韩文目录名", `{"workdir":"/srv/proj/문서/프로젝트"}`},
+		{"日文目录名", `{"workdir":"/srv/proj/ドキュメント/プロジェクト"}`},
+		{"俄文目录名", `{"workdir":"/srv/proj/Документы/проект"}`},
 
 		// --- fail-open：不完整/非字符串不判退化 ---
-		{"流式累积中的不完整 JSON", `{"command":"sleep 600","workdir":"/Users/zero/Doc`},
+		{"流式累积中的不完整 JSON", `{"command":"sleep 600","workdir":"/srv/proj/Doc`},
 		{"空 arguments", ``},
 		{"数字与布尔字段", `{"timeout":600,"force":true}`},
 		{"嵌套对象", `{"opts":{"depth":3,"paths":["/a","/b"]}}`},
@@ -103,7 +105,7 @@ func TestToolArgsGuard_AccumulatesAcrossChunks(t *testing.T) {
 
 	g := newToolArgsDegenerationGuard(true)
 	// 逐块喂入，任一单块都不足以判定，累积后才命中协议残片
-	chunks := []string{`{"workdir":"/Users/zero/x `, `assistant `, `to=functions.`, `bash"}`}
+	chunks := []string{`{"workdir":"/srv/proj/x `, `assistant `, `to=functions.`, `bash"}`}
 	var tripped string
 	for _, c := range chunks {
 		if reason := g.Observe(0, c); reason != "" {
@@ -141,8 +143,8 @@ func TestHasRunawayRepeat(t *testing.T) {
 	require.True(t, hasRunawayRepeat(strings.Repeat("./", 40)))
 	require.True(t, hasRunawayRepeat(strings.Repeat("../", 30)))
 	require.True(t, hasRunawayRepeat(strings.Repeat("ab", 50)))
-	require.False(t, hasRunawayRepeat("/Users/zero/a/../b/../c"), "少量重复合法")
-	require.False(t, hasRunawayRepeat("/Users/zero/Documents/GitHub/sub2api"))
+	require.False(t, hasRunawayRepeat("/srv/proj/a/../b/../c"), "少量重复合法")
+	require.False(t, hasRunawayRepeat("/srv/proj/Documents/GitHub/sub2api"))
 	require.False(t, hasRunawayRepeat(""))
 }
 
