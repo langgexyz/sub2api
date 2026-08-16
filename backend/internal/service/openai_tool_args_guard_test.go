@@ -71,12 +71,11 @@ func TestToolArgsDegeneration_NegativeMustNotTrip(t *testing.T) {
 	t.Parallel()
 
 	// 真实的长文件内容：各行互不相同，用于验证长度不再充当主判据。
-	var longContent strings.Builder
+	longLines := make([]string, 0, 500)
 	for i := 0; i < 500; i++ {
-		longContent.WriteString("line ")
-		longContent.WriteString(strconv.Itoa(i))
-		longContent.WriteString(": handle request and write response\n")
+		longLines = append(longLines, "line "+strconv.Itoa(i)+": handle request and write response")
 	}
+	longContent := strings.Join(longLines, "\n") + "\n"
 
 	cases := []struct {
 		name string
@@ -114,7 +113,7 @@ func TestToolArgsDegeneration_NegativeMustNotTrip(t *testing.T) {
 		{"Markdown 分隔线（单字符重复不得判退化）",
 			`{"filePath":"/srv/README.md","content":"# T\n\n` + strings.Repeat("-", 80) + `\n"}`},
 		{"长文件内容（超过旧的 4096 单字段上限）",
-			`{"filePath":"/srv/app/big.txt","content":` + jsonQuote(longContent.String()) + `}`},
+			`{"filePath":"/srv/app/big.txt","content":` + jsonQuote(longContent) + `}`},
 
 		// --- fail-open：不完整/非字符串不判退化 ---
 		{"流式累积中的不完整 JSON", `{"command":"sleep 600","workdir":"/srv/proj/Doc`},
