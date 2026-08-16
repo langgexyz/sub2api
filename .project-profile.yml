@@ -1,12 +1,13 @@
 # sub2api 项目元信息（DI 注入源）—— fork 工作模式。
 #
-# 真 trunk 在 fork 远端（fork-main，跟踪 https://github.com/langgexyz/sub2api）；
-# 本地 origin 是弃用镜像（Wei-Shaw/sub2api）。wt / merge-gate / check-runner 都靠
-# 这份文件自报家门，否则：wt 从错误的远端拉 worktree、merge-gate 无产物可判。
+# 真 trunk 在 fork 远端（分支名 main，remote 名 fork，跟踪
+# https://github.com/langgexyz/sub2api）；本地 origin 是弃用镜像
+# （Wei-Shaw/sub2api）。wt / merge-gate / check-runner 都靠这份文件自报家门，
+# 否则：wt 从错误的远端拉 worktree、merge-gate 无产物可判。
 #
 # issue 开在 Gitee 企业看板（跟本仓同企业），id 形如 IKxxxxx。
 repo:
-  dev_branch: fork-main
+  dev_branch: main
   remote: fork
 
 issue:
