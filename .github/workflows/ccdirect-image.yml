@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.image.outputs.ref }}
+      version: ${{ steps.version.outputs.label }}
     steps:
       - uses: actions/checkout@v6
 
@@ -27,8 +28,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: version
+        run: |
+          VERSION_VALUE="$(bash backend/scripts/resolve-version.sh)"
+          SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+          echo "label=${VERSION_VALUE}.${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
       - id: image
         run: |
+          echo "repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - id: build
@@ -37,19 +45,23 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.image.outputs.ref }}
+          tags: |
+            ${{ steps.image.outputs.ref }}
+            ${{ steps.image.outputs.repo }}:${{ steps.version.outputs.label }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Publish immutable deployment reference
         run: |
+          printf 'version=%s\n' '${{ steps.version.outputs.label }}'
           printf 'image=%s\n' '${{ steps.image.outputs.ref }}'
           printf 'digest=%s\n' '${{ steps.build.outputs.digest }}'
           printf 'commit=%s\n' '${{ github.sha }}'
           {
             echo '## CCDirect deployment image'
             echo
+            echo "- version: \`${{ steps.version.outputs.label }}\`"
             echo "- image: \`${{ steps.image.outputs.ref }}\`"
             echo "- digest: \`${{ steps.build.outputs.digest }}\`"
             echo "- commit: \`${{ github.sha }}\`"
