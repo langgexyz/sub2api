@@ -6,12 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCodexVersionConstants_Consistency(t *testing.T) {
-	require.True(t, strings.Contains(codexCLIUserAgent, openai.CodexDefaultOriginator+"/"+codexCLIVersion),
+	require.Equal(t, codexCLIVersion, openAICodexProbeVersion,
+		"codexCLIVersion and openAICodexProbeVersion must stay in sync")
+
+	require.True(t, strings.Contains(codexCLIUserAgent, "codex_cli_rs/"+codexCLIVersion),
 		"codexCLIUserAgent must embed codexCLIVersion")
 
 	require.True(t, strings.Contains(DefaultOpenAICodexUserAgent, codexCLIVersion),

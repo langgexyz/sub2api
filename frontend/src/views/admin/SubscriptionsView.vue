@@ -243,14 +243,9 @@
               >
                 {{ formatDateTimeToMinute(value) }}
               </span>
-              <template
-                v-for="remainingExpiry in [formatRemainingExpiry(value)]"
-                :key="remainingExpiry ?? 'expired'"
-              >
-                <div v-if="remainingExpiry" class="text-xs text-gray-500">
-                  {{ remainingExpiry }}
-                </div>
-              </template>
+              <div v-if="getDaysRemaining(value) !== null" class="text-xs text-gray-500">
+                {{ getDaysRemaining(value) }} {{ t('admin.subscriptions.daysRemaining') }}
+              </div>
             </div>
             <span v-else class="text-sm text-gray-500">{{
               t('admin.subscriptions.noExpiration')
@@ -883,7 +878,10 @@ const groupOptions = computed(() => [
 
 const platformFilterOptions = computed(() => [
   { value: '', label: t('admin.subscriptions.allPlatforms') },
-  ...GROUP_PLATFORM_OPTIONS
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'antigravity', label: 'Antigravity' }
 ])
 
 // Group options for assign (only subscription type groups)
@@ -1227,21 +1225,6 @@ const getDaysRemaining = (expiresAt: string): number | null => {
   const diff = expires.getTime() - now.getTime()
   if (diff < 0) return null
   return Math.ceil(diff / (1000 * 60 * 60 * 24))
-}
-
-const formatRemainingExpiry = (expiresAt: string): string | null => {
-  const duration = getRemainingExpiryDuration(expiresAt)
-  if (!duration) return null
-  if (duration.unit === 'days') {
-    return t('admin.subscriptions.daysRemaining', { days: duration.days })
-  }
-  if (duration.hours) {
-    return t('admin.subscriptions.hoursMinutesRemaining', {
-      hours: duration.hours,
-      minutes: duration.minutes
-    })
-  }
-  return t('admin.subscriptions.minutesRemaining', { minutes: duration.minutes })
 }
 
 const isExpiringSoon = (expiresAt: string): boolean => {

@@ -9,6 +9,10 @@ const routeState = vi.hoisted(() => ({
   query: {} as Record<string, unknown>,
 }))
 
+const locationState = vi.hoisted(() => ({
+  current: { href: 'http://localhost/login' } as { href: string },
+}))
+
 let pinia: ReturnType<typeof createPinia>
 
 vi.mock('vue-router', () => ({
@@ -69,7 +73,6 @@ function buildPublicSettings(overrides: Partial<WeChatPublicSettings> = {}): WeC
     contact_info: '',
     doc_url: '',
     home_content: '',
-    compact_home_enabled: false,
     hide_ccs_import_button: false,
     payment_enabled: false,
     table_default_page_size: 20,
@@ -101,6 +104,11 @@ describe('WechatOAuthSection', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     routeState.query = { redirect: '/billing?plan=pro' }
+    locationState.current = { href: 'http://localhost/login' }
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: locationState.current,
+    })
     Object.defineProperty(window.navigator, 'userAgent', {
       configurable: true,
       value: 'Mozilla/5.0',
@@ -126,10 +134,9 @@ describe('WechatOAuthSection', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.emitted('start')?.[0]?.[0]).toEqual({
-      provider: 'wechat',
-      params: { mode: 'open', redirect: '/billing?plan=pro' }
-    })
+    expect(locationState.current.href).toContain(
+      '/api/v1/auth/oauth/wechat/start?mode=open&redirect=%2Fbilling%3Fplan%3Dpro'
+    )
   })
 
   it('uses mp mode inside the WeChat browser when mp mode is configured', async () => {
@@ -149,10 +156,9 @@ describe('WechatOAuthSection', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.emitted('start')?.[0]?.[0]).toEqual({
-      provider: 'wechat',
-      params: { mode: 'mp', redirect: '/billing?plan=pro' }
-    })
+    expect(locationState.current.href).toContain(
+      '/api/v1/auth/oauth/wechat/start?mode=mp&redirect=%2Fbilling%3Fplan%3Dpro'
+    )
   })
 
   it('disables the button outside the WeChat browser when only mp mode is configured', async () => {
@@ -171,7 +177,7 @@ describe('WechatOAuthSection', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.emitted('start')).toBeUndefined()
+    expect(locationState.current.href).toBe('http://localhost/login')
   })
 
   it('disables the button inside the WeChat browser when only open mode is configured', async () => {
@@ -194,7 +200,7 @@ describe('WechatOAuthSection', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.emitted('start')).toBeUndefined()
+    expect(locationState.current.href).toBe('http://localhost/login')
   })
 
   it('uses the legacy overall enabled flag when per-mode settings are not present', async () => {
@@ -209,10 +215,9 @@ describe('WechatOAuthSection', () => {
 
     await wrapper.get('button').trigger('click')
 
-    expect(wrapper.emitted('start')?.[0]?.[0]).toEqual({
-      provider: 'wechat',
-      params: { mode: 'open', redirect: '/billing?plan=pro' }
-    })
+    expect(locationState.current.href).toContain(
+      '/api/v1/auth/oauth/wechat/start?mode=open&redirect=%2Fbilling%3Fplan%3Dpro'
+    )
   })
 
   it('shows the localized not-configured hint when WeChat OAuth is unavailable', async () => {

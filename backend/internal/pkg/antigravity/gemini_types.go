@@ -112,8 +112,7 @@ type GeminiImageSearch struct {
 
 // GeminiToolConfig Gemini 工具配置
 type GeminiToolConfig struct {
-	FunctionCallingConfig            *GeminiFunctionCallingConfig `json:"functionCallingConfig,omitempty"`
-	IncludeServerSideToolInvocations *bool                        `json:"includeServerSideToolInvocations,omitempty"`
+	FunctionCallingConfig *GeminiFunctionCallingConfig `json:"functionCallingConfig,omitempty"`
 }
 
 // GeminiFunctionCallingConfig 函数调用配置

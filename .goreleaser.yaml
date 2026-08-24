@@ -65,7 +65,6 @@ dockers:
     use: buildx
     extra_files:
       - deploy/docker-entrypoint.sh
-      - backend/resources
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.version={{ .Version }}"
@@ -81,7 +80,6 @@ dockers:
     use: buildx
     extra_files:
       - deploy/docker-entrypoint.sh
-      - backend/resources
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.version={{ .Version }}"
@@ -97,7 +95,6 @@ dockers:
     use: buildx
     extra_files:
       - deploy/docker-entrypoint.sh
-      - backend/resources
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.version={{ .Version }}"
@@ -113,7 +110,6 @@ dockers:
     use: buildx
     extra_files:
       - deploy/docker-entrypoint.sh
-      - backend/resources
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.version={{ .Version }}"

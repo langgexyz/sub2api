@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
-	"go.uber.org/zap"
 )
 
 const (
@@ -286,10 +285,7 @@ func (s *OpsCleanupService) runScheduled() {
 		return
 	}
 	s.recordHeartbeatSuccess(runAt, time.Since(startedAt), counts)
-	logger.L().Info("[OpsCleanup] cleanup complete",
-		zap.String("component", "service.ops_cleanup"),
-		zap.String("deleted_counts", counts.String()),
-	)
+	logger.LegacyPrintf("service.ops_cleanup", "[OpsCleanup] cleanup complete: %s", counts)
 }
 
 func (s *OpsCleanupService) runCleanupOnce(ctx context.Context) (opsCleanupDeletedCounts, error) {

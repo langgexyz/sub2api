@@ -32,7 +32,7 @@ const (
 
 // DefaultCSPPolicy is the default Content-Security-Policy with nonce support
 // __CSP_NONCE__ will be replaced with actual nonce at request time by the SecurityHeaders middleware
-const DefaultCSPPolicy = "default-src 'self'; worker-src 'self' blob:; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://*.alicdn.com https://static.cloudflareinsights.com https://turing.captcha.qcloud.com https://turing.captcha.gtimg.com https://ca.turing.captcha.qcloud.com https://global.turing.captcha.gtimg.com https://www.tycaptcha.com https://cloudcache.tencentcs.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://*.captcha.gtimg.com https://fonts.googleapis.com https://*.alicdn.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://turing.captcha.qcloud.com https://www.tycaptcha.com https://rce.tencentrio.com https:; frame-src https://challenges.cloudflare.com https://turing.captcha.qcloud.com https://ca.turing.captcha.qcloud.com https://www.tycaptcha.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+const DefaultCSPPolicy = "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
 // UMQ（用户消息队列）模式常量
 const (
@@ -858,53 +858,6 @@ type ProxyFallbackConfig struct {
 
 type ProxyProbeConfig struct {
 	InsecureSkipVerify bool `mapstructure:"insecure_skip_verify"` // 已禁用：禁止跳过 TLS 证书验证
-	// URLs 按优先级排列的自定义探测 URL 列表。
-	// 留空时使用内置默认列表（ip-api → ipify）。
-	// 某些 AI API 专用代理只允许访问特定域名，配置多个备选可提高探测成功率。
-	URLs []ProbeURLConfig `mapstructure:"urls"`
-}
-
-// ProbeURLConfig 描述一个探测端点及其响应解析方式。
-type ProbeURLConfig struct {
-	URL    string `mapstructure:"url"`
-	Parser string `mapstructure:"parser"` // "ip-api" / "ipify" / "chatgpt-trace"
-}
-
-func normalizeProxyProbeURLs(targets []ProbeURLConfig) ([]ProbeURLConfig, error) {
-	if len(targets) == 0 {
-		return nil, nil
-	}
-
-	normalized := make([]ProbeURLConfig, 0, len(targets))
-	for i, target := range targets {
-		rawURL := strings.TrimSpace(target.URL)
-		parser := strings.ToLower(strings.TrimSpace(target.Parser))
-		if rawURL == "" {
-			return nil, fmt.Errorf("entry %d: url is required", i)
-		}
-		if parser == "" {
-			return nil, fmt.Errorf("entry %d: parser is required", i)
-		}
-		switch parser {
-		case "ip-api", "ipify", "chatgpt-trace":
-		default:
-			return nil, fmt.Errorf("entry %d: unsupported parser %q", i, target.Parser)
-		}
-
-		parsed, err := url.Parse(rawURL)
-		if err != nil || parsed.Host == "" {
-			return nil, fmt.Errorf("entry %d: invalid url %q", i, target.URL)
-		}
-		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			return nil, fmt.Errorf("entry %d: url scheme must be http or https", i)
-		}
-
-		normalized = append(normalized, ProbeURLConfig{
-			URL:    rawURL,
-			Parser: parser,
-		})
-	}
-	return normalized, nil
 }
 
 type BillingConfig struct {
@@ -962,9 +915,6 @@ type GatewayConfig struct {
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
-	// GrokResponseHeaderTimeout bounds the pre-first-byte wait for xAI/Grok.
-	// A zero value uses the provider-safe default instead of the generic gateway timeout.
-	GrokResponseHeaderTimeout int `mapstructure:"grok_response_header_timeout"`
 	// OpenAIFirstOutputTimeoutSeconds: native HTTP Responses 首个语义输出超时（秒），0表示禁用。
 	OpenAIFirstOutputTimeoutSeconds int `mapstructure:"openai_first_output_timeout_seconds"`
 	// OpenAIHighEffortFirstOutputTimeoutSeconds: high/xhigh/max 推理的首个语义输出超时（秒）。
@@ -1095,55 +1045,6 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
-
-	// Grok: Grok/xAI gateway scheduling and free-tier soft-gate settings.
-	Grok GatewayGrokConfig `mapstructure:"grok"`
-
-	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
-	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
-	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
-}
-
-// GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
-//
-// Free-quota soft gate keys (gateway.grok.*):
-//   - free_quota_soft_gate_enabled: enable local rolling-window scheduling guard for
-//     OAuth accounts whose subscription_tier/plan_type is explicitly "free".
-//     Default true is safe only because free-tier detection is strict (unknown/paid fail open).
-//   - free_quota_token_limit: nominal rolling-window token allowance.
-//   - free_quota_soft_gate_percent: stop new scheduling before the nominal limit (1-100).
-//   - free_quota_window_hours: local usage rolling window length in hours.
-//   - free_quota_stats_cache_seconds: cache TTL for free-tier usage stats
-//     (hot path never blocks on DB; misses fail open and refresh in background).
-type GatewayGrokConfig struct {
-	// PasswordAuthEnabled controls the optional password-to-SSO OAuth flow.
-	// It defaults to false and must be explicitly enabled by the operator.
-	// When true, POST /admin/grok/oauth/password is functional (not ignored).
-	PasswordAuthEnabled bool `mapstructure:"password_auth_enabled"`
-	// FreeQuotaSoftGateEnabled enables a local rolling-window scheduling guard
-	// for explicitly free Grok OAuth accounts only.
-	FreeQuotaSoftGateEnabled bool `mapstructure:"free_quota_soft_gate_enabled"`
-	// FreeQuotaTokenLimit is the nominal rolling-window allowance.
-	FreeQuotaTokenLimit int64 `mapstructure:"free_quota_token_limit"`
-	// FreeQuotaSoftGatePercent stops new scheduling before the nominal limit.
-	FreeQuotaSoftGatePercent int `mapstructure:"free_quota_soft_gate_percent"`
-	// FreeQuotaWindowHours controls the local rolling usage window.
-	FreeQuotaWindowHours int `mapstructure:"free_quota_window_hours"`
-	// FreeQuotaStatsCacheSeconds is the soft-gate stats cache TTL. Hot path never
-	// waits on usage_logs; misses fail open and refresh asynchronously.
-	FreeQuotaStatsCacheSeconds int `mapstructure:"free_quota_stats_cache_seconds"`
-}
-
-// GatewayCNProvidersConfig 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
-//
-// 仅作用于 payg（按量付费）账号（kimi/deepseek 有公开余额端点；zhipu 无，仅靠响应式 429/402）。
-//   - balance_check_enabled: 是否启用周期余额检测（默认 true）
-//   - balance_threshold: 余额低于此值（账户货币单位，默认 0.5）触发临时停调
-//   - balance_check_interval_minutes: 余额检测周期（分钟，默认 10）
-type GatewayCNProvidersConfig struct {
-	BalanceCheckEnabled         bool    `mapstructure:"balance_check_enabled"`
-	BalanceThreshold            float64 `mapstructure:"balance_threshold"`
-	BalanceCheckIntervalMinutes int     `mapstructure:"balance_check_interval_minutes"`
 }
 
 type GatewayLiveConfig struct {
@@ -1169,8 +1070,6 @@ type GatewayOpenAIHTTP2Config struct {
 // GatewayOpenAIProxyStreamCircuitConfig controls the bounded, in-process
 // proxy-ID circuit used for incomplete OpenAI Responses SSE streams.
 type GatewayOpenAIProxyStreamCircuitConfig struct {
-	// Disabled: 完全关闭代理断流熔断（默认开启）。
-	Disabled bool `mapstructure:"disabled"`
 	// FailureThreshold: 统计窗口内多少次断流后隔离代理。
 	FailureThreshold int `mapstructure:"failure_threshold"`
 	// WindowSeconds: 断流统计窗口（秒）。
@@ -1802,10 +1701,6 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 环境变量支持
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	if tz, ok := os.LookupEnv("TZ"); ok && strings.TrimSpace(tz) != "" {
-		// AutomaticEnv 会先把 timezone 映射到 TIMEZONE；显式 Set 保证标准 TZ 变量优先。
-		viper.Set("timezone", strings.TrimSpace(tz))
-	}
 	if err := viper.BindEnv("server.enable_server_timing", "ENABLE_SERVER_TIMING"); err != nil {
 		return nil, fmt.Errorf("bind ENABLE_SERVER_TIMING: %w", err)
 	}
@@ -1912,13 +1807,6 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 			return nil, fmt.Errorf("read forced codex instructions template %q: %w", cfg.Gateway.ForcedCodexInstructionsTemplateFile, err)
 		}
 		cfg.Gateway.ForcedCodexInstructionsTemplate = string(content)
-	}
-
-	// 兼容旧键 gateway.disable_codex_originator_normalization：语义已被
-	// disable_codex_identity_enforcement 取代（身份改写升级为强制统一出口），
-	// 任一为 true 即关闭强制统一。
-	if cfg.Gateway.DisableCodexOriginatorNormalization {
-		cfg.Gateway.DisableCodexIdentityEnforcement = true
 	}
 
 	// 兼容旧键 gateway.openai_ws.sticky_previous_response_ttl_seconds。
@@ -2368,7 +2256,6 @@ func setDefaults() {
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
-	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.openai_high_effort_first_output_timeout_seconds", 0)
 	viper.SetDefault("gateway.log_upstream_error_body", true)
@@ -2446,23 +2333,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_http2.fallback_error_threshold", 2)
 	viper.SetDefault("gateway.openai_http2.fallback_window_seconds", 60)
 	viper.SetDefault("gateway.openai_http2.fallback_ttl_seconds", 600)
-	viper.SetDefault("gateway.openai_proxy_stream_circuit.disabled", false)
 	viper.SetDefault("gateway.openai_proxy_stream_circuit.failure_threshold", 2)
 	viper.SetDefault("gateway.openai_proxy_stream_circuit.window_seconds", 60)
 	viper.SetDefault("gateway.openai_proxy_stream_circuit.ttl_seconds", 600)
-	// Grok free-tier local soft gate (scheduler-only; admin QueryQuota does not use this).
-	// Enabled by default because free detection requires an explicit free tier marker.
-	viper.SetDefault("gateway.grok.free_quota_soft_gate_enabled", true)
-	viper.SetDefault("gateway.grok.password_auth_enabled", false)
-	// Free soft-gate nominal limit: 500k tokens / rolling 24h (operator policy).
-	viper.SetDefault("gateway.grok.free_quota_token_limit", int64(500_000))
-	viper.SetDefault("gateway.grok.free_quota_soft_gate_percent", 95)
-	viper.SetDefault("gateway.grok.free_quota_window_hours", 24)
-	viper.SetDefault("gateway.grok.free_quota_stats_cache_seconds", 60)
-	// 国产供应商余额检测（kimi/deepseek payg；zhipu 无余额端点，仅靠响应式 429/402）。
-	viper.SetDefault("gateway.cn_providers.balance_check_enabled", true)
-	viper.SetDefault("gateway.cn_providers.balance_threshold", 0.5)
-	viper.SetDefault("gateway.cn_providers.balance_check_interval_minutes", 10)
 	viper.SetDefault("gateway.image_concurrency.enabled", false)
 	viper.SetDefault("gateway.image_concurrency.max_concurrent_requests", 0)
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)
@@ -2671,11 +2544,6 @@ func (c *Config) Validate() error {
 	}
 	c.Security.ForwardedClientIPHeaders = forwardedClientIPHeaders
 	c.SetForwardedClientIPSettings(c.Security.TrustForwardedIPForAPIKeyACL, forwardedClientIPHeaders)
-	proxyProbeURLs, err := normalizeProxyProbeURLs(c.Security.ProxyProbe.URLs)
-	if err != nil {
-		return fmt.Errorf("security.proxy_probe.urls: %w", err)
-	}
-	c.Security.ProxyProbe.URLs = proxyProbeURLs
 	if c.Server.ReadHeaderTimeout < 1 || c.Server.ReadHeaderTimeout > 60 {
 		return fmt.Errorf("server.read_header_timeout must be between 1 and 60 seconds")
 	}
@@ -3296,9 +3164,6 @@ func (c *Config) Validate() error {
 	if c.Gateway.OpenAIResponseHeaderTimeout < 0 {
 		return fmt.Errorf("gateway.openai_response_header_timeout must be non-negative")
 	}
-	if c.Gateway.GrokResponseHeaderTimeout < 0 || c.Gateway.GrokResponseHeaderTimeout > 1800 {
-		return fmt.Errorf("gateway.grok_response_header_timeout must be between 0-1800 seconds")
-	}
 	if c.Gateway.OpenAIFirstOutputTimeoutSeconds < 0 || c.Gateway.OpenAIFirstOutputTimeoutSeconds > 600 ||
 		(c.Gateway.OpenAIFirstOutputTimeoutSeconds > 0 && c.Gateway.OpenAIFirstOutputTimeoutSeconds < 30) {
 		return fmt.Errorf("gateway.openai_first_output_timeout_seconds must be 0 or between 30-600 seconds")
@@ -3699,20 +3564,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Concurrency.PingInterval < 5 || c.Concurrency.PingInterval > 30 {
 		return fmt.Errorf("concurrency.ping_interval must be between 5-30 seconds")
-	}
-	if c.Gateway.Grok.FreeQuotaSoftGateEnabled {
-		if c.Gateway.Grok.FreeQuotaTokenLimit <= 0 {
-			return fmt.Errorf("gateway.grok.free_quota_token_limit must be positive")
-		}
-		if c.Gateway.Grok.FreeQuotaSoftGatePercent < 1 || c.Gateway.Grok.FreeQuotaSoftGatePercent > 100 {
-			return fmt.Errorf("gateway.grok.free_quota_soft_gate_percent must be between 1 and 100")
-		}
-		if c.Gateway.Grok.FreeQuotaWindowHours <= 0 {
-			return fmt.Errorf("gateway.grok.free_quota_window_hours must be positive")
-		}
-	}
-	if c.Gateway.Grok.FreeQuotaStatsCacheSeconds < 0 {
-		return fmt.Errorf("gateway.grok.free_quota_stats_cache_seconds must be non-negative")
 	}
 	if err := ValidateDingTalkConfig(c.DingTalk); err != nil {
 		return fmt.Errorf("dingtalk_connect: %w", err)

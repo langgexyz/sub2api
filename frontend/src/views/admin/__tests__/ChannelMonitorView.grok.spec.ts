@@ -10,21 +10,8 @@ import {
   PROVIDER_GROK,
 } from '@/constants/channelMonitor'
 
-const { listTemplates, accountsList, accountsGetById } = vi.hoisted(() => ({
+const { listTemplates } = vi.hoisted(() => ({
   listTemplates: vi.fn(),
-  accountsList: vi.fn(),
-  accountsGetById: vi.fn(),
-}))
-
-
-vi.mock('@/utils/featureFlags', () => ({
-  isChannelMonitorV1Mode: () => true,
-  isChannelMonitorV2Mode: () => false,
-  getChannelMonitorMode: () => 'v1' as const,
-}))
-
-vi.mock('@/features/channel-monitor-v2/MonitorSettingsPanel.vue', () => ({
-  default: { name: 'MonitorSettingsPanel', template: '<div data-testid="v2-settings" />' },
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -35,10 +22,6 @@ vi.mock('@/api/admin', () => ({
     },
     channelMonitorTemplate: {
       list: listTemplates,
-    },
-    accounts: {
-      list: (...args: unknown[]) => accountsList(...args),
-      getById: (...args: unknown[]) => accountsGetById(...args),
     },
   },
 }))
@@ -91,8 +74,6 @@ function mountDialog() {
 describe('channel monitor Grok provider', () => {
   beforeEach(() => {
     listTemplates.mockReset().mockResolvedValue({ items: [] })
-    accountsList.mockReset().mockResolvedValue({ items: [] })
-    accountsGetById.mockReset()
   })
 
   it('offers Grok in the responsive provider grid and prefills its official defaults', async () => {
@@ -101,7 +82,7 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(8)
+    expect(providerButtons).toHaveLength(4)
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
     expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
 

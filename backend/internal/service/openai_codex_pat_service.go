@@ -58,7 +58,8 @@ func (s *OpenAIOAuthService) ValidateCodexPersonalAccessToken(ctx context.Contex
 	}
 	req.Header.Set("authorization", "Bearer "+accessToken)
 	req.Header.Set("accept", "application/json")
-	ApplyCodexCanonicalAuthIdentity(req.Header)
+	req.Header.Set("originator", "codex_cli_rs")
+	req.Header.Set("user-agent", codexCLIUserAgent)
 
 	resp, err := client.Do(req)
 	if err != nil {

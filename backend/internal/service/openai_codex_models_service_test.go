@@ -17,7 +17,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
@@ -194,7 +193,7 @@ func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	if gotAccountID != "acc-123" {
 		t.Errorf("chatgpt-account-id header: got %q", gotAccountID)
 	}
-	if gotOriginator != openai.CodexDefaultOriginator {
+	if gotOriginator != "codex_cli_rs" {
 		t.Errorf("originator header: got %q", gotOriginator)
 	}
 	if gotClientVersion != "0.137.0" {
@@ -348,8 +347,8 @@ func TestFetchCodexModelsManifestDefaultClientVersion(t *testing.T) {
 	if _, err := s.FetchCodexModelsManifest(context.Background(), newCodexModelsTestAccount(), "", ""); err != nil {
 		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
 	}
-	if gotClientVersion != CodexCanonicalClientVersion() {
-		t.Errorf("default client_version: got %q, want %q", gotClientVersion, CodexCanonicalClientVersion())
+	if gotClientVersion != openAICodexProbeVersion {
+		t.Errorf("default client_version: got %q, want %q", gotClientVersion, openAICodexProbeVersion)
 	}
 }
 
@@ -448,13 +447,13 @@ func TestFetchCodexModelsManifestAPIKeyCustomUpstream(t *testing.T) {
 	if gotRequest.Header.Get("Authorization") != "Bearer sk-upstream" {
 		t.Errorf("authorization header: got %q", gotRequest.Header.Get("Authorization"))
 	}
-	if gotRequest.Header.Get("Originator") != openai.CodexDefaultOriginator {
+	if gotRequest.Header.Get("Originator") != "codex_cli_rs" {
 		t.Errorf("originator header: got %q", gotRequest.Header.Get("Originator"))
 	}
 	if gotRequest.Header.Get("Version") != "0.144.0" {
-		t.Errorf("version header must match the client_version query param: got %q", gotRequest.Header.Get("Version"))
+		t.Errorf("version header: got %q", gotRequest.Header.Get("Version"))
 	}
-	if gotRequest.Header.Get("User-Agent") != CodexCanonicalUserAgent() {
+	if gotRequest.Header.Get("User-Agent") != codexCLIUserAgent {
 		t.Errorf("user-agent header: got %q", gotRequest.Header.Get("User-Agent"))
 	}
 	if gotRequest.Header.Get("chatgpt-account-id") != "" {

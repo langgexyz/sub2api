@@ -405,7 +405,7 @@ onUnmounted(() => {
 }
 
 .dark .date-picker-input::-webkit-calendar-picker-indicator {
-  filter: none;
+  filter: invert(0.7);
 }
 
 .date-picker-separator {

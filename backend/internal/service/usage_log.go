@@ -114,12 +114,6 @@ type UsageLog struct {
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Nil means no mapping was applied (requested model was used as-is).
 	UpstreamModel *string
-	// UpstreamResponseModel is the model declared by the successful upstream
-	// response before client-facing model rewrites or protocol conversion.
-	UpstreamResponseModel *string
-	// UpstreamModelMismatch is nil when no upstream model was observed. Otherwise
-	// it compares UpstreamResponseModel with the actual model sent upstream.
-	UpstreamModelMismatch *bool
 	// ChannelID 渠道 ID
 	ChannelID *int64
 	// ModelMappingChain 模型映射链，如 "a→b→c"
@@ -128,8 +122,7 @@ type UsageLog struct {
 	BillingTier *string
 	// BillingMode 计费模式：token/image
 	BillingMode *string
-	// ServiceTier records the billable request tier, e.g. OpenAI "priority" / "flex"
-	// or Anthropic "fast".
+	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier *string
 	// ReasoningEffort is the request's reasoning effort level.
 	// OpenAI: "low" / "medium" / "high" / "xhigh"; Claude: "low" / "medium" / "high" / "max".

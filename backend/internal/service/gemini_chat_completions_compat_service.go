@@ -204,7 +204,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		c.Header("x-request-id", requestID)
 	}
 
-	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody, mappedModel)
+	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody)
 	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
 	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
@@ -215,9 +215,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		if s.rateLimitService != nil {
 			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
 		}
-		// 与 messages 兼容层一致：只有 None / Matched 才走账号状态处理。
-		// Skipped（池模式、或自定义错误码未命中）与 TempUnscheduled 已由策略层裁决完毕。
-		if policy == ErrorPolicyNone || policy == ErrorPolicyMatched {
+		if policy != ErrorPolicyTempUnscheduled {
 			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
 		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
@@ -240,11 +238,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			}
 		}
 
-		if policy == ErrorPolicySkipped && account.IsCustomErrorCodesEnabled() {
-			return nil, s.writeGeminiCustomCodeSkippedError(c, account, resp.StatusCode, requestID, evBody, func() {
-				_ = s.writeChatCompletionsError(c, http.StatusInternalServerError, "api_error", geminiCustomCodeSkippedClientMessage)
-			})
-		}
 		return nil, s.writeGeminiChatCompletionsMappedError(c, account, resp.StatusCode, requestID, evBody)
 	}
 
@@ -329,9 +322,9 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 			if clientStream {
 				action = "streamGenerateContent"
 			}
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, clientStream)
-			if err != nil {
-				return nil, "", err
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
+			if clientStream {
+				fullURL += "?alt=sse"
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
@@ -396,9 +389,9 @@ func (s *GeminiMessagesCompatService) buildGeminiChatCompletionsUpstreamRequestF
 				return nil, "", err
 			}
 
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, useUpstreamStream)
-			if err != nil {
-				return nil, "", err
+			fullURL := fmt.Sprintf("%s/v1beta/models/%s:%s", strings.TrimRight(normalizedBaseURL, "/"), mappedModel, action)
+			if useUpstreamStream {
+				fullURL += "?alt=sse"
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
@@ -861,13 +854,8 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 		if errType == "upstream_error" {
 			errType = "invalid_request_error"
 		}
-		// 400 是确定性的请求错误：回传上游 message（已脱敏），客户端据此定位非法字段。
 		if errMsg == "Upstream request failed" {
-			if upstreamMsg != "" {
-				errMsg = upstreamMsg
-			} else {
-				errMsg = "Invalid request"
-			}
+			errMsg = "Invalid request"
 		}
 	case http.StatusNotFound:
 		statusCode = http.StatusNotFound

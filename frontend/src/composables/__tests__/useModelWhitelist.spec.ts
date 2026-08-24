@@ -46,13 +46,9 @@ describe('useModelWhitelist', () => {
   it('xAI 模型列表包含 Grok 4.5 官方模型和别名', () => {
     const models = getModelsByPlatform('grok')
 
-    expect(models).toContain('grok-4.6')
-    expect(models).toContain('grok-4.6-latest')
     expect(models).toContain('grok-4.5')
     expect(models).toContain('grok-4.5-latest')
     expect(models).toContain('grok-build-latest')
-    expect(models).toContain('grok-imagine-image-2.0')
-    expect(models).toContain('grok-imagine-video-1.5')
   })
 
   it('combined 模式支持 Grok 4.5 官方别名映射', () => {
@@ -78,7 +74,7 @@ describe('useModelWhitelist', () => {
     const models = getModelsByPlatform('grok')
 
     expect(models).toContain('grok-composer-2.5-fast')
-    expect(models).not.toContain('grok-composer')
+    expect(models).toContain('grok-composer')
     expect(models).toContain('composer-2.5')
   })
 
