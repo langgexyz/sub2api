@@ -76,6 +76,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 2. Resolve model mapping (same as ForwardAsChatCompletions)
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	SetOpsUpstreamModel(c, upstreamModel)
 	grokCacheIdentity := ""
 	if account.Platform == PlatformGrok {
 		// Resolve before image bridging or other body rewrites so the fallback is
@@ -120,6 +121,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
+	if account.Platform == PlatformGrok {
+		strippedBody, stripErr := stripRedundantGrokChatViewImageTool(upstreamBody)
+		if stripErr != nil {
+			return nil, fmt.Errorf("strip redundant Grok Chat view_image tool: %w", stripErr)
+		}
+		upstreamBody = strippedBody
+	}
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
@@ -159,7 +167,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("remove Responses-only Grok prompt cache key: %w", err)
 		}
+		upstreamBody, err = normalizeGrokChatReasoningEffort(upstreamBody, upstreamModel)
+		if err != nil {
+			return nil, fmt.Errorf("normalize Grok chat reasoning effort: %w", err)
+		}
 	}
+	upstreamBody = applyOllamaCloudRawChatCompletionsRequest(account, upstreamBody)
 
 	logger.L().Debug("openai chat_completions raw: forwarding without protocol conversion",
 		zap.Int64("account_id", account.ID),
@@ -202,13 +215,18 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 				Kind:               kind,
 				Message:            upstreamMsg,
 			})
-			s.handleGrokAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
 			if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+				retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
 				return nil, &UpstreamFailoverError{
-					StatusCode:             resp.StatusCode,
-					ResponseBody:           respBody,
-					ResponseHeaders:        resp.Header.Clone(),
-					RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+					StatusCode:               resp.StatusCode,
+					ResponseBody:             respBody,
+					ResponseHeaders:          resp.Header.Clone(),
+					RetryableOnSameAccount:   retryable,
+					RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+					SameAccountRetryDelay:    retryDelay,
+					SameAccountRetryDeadline: retryDeadline,
+					SameAccountRetryMax:      retryMax,
 				}
 			}
 			return s.handleChatCompletionsErrorResponse(resp, c, account, billingModel)
@@ -220,7 +238,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	}
 
 	if account.Platform == PlatformGrok {
-		s.updateGrokUsageFromResponse(ctx, account, resp.Header, resp.StatusCode)
+		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.Header, resp.StatusCode)
 	}
 
 	// 8. Forward response
@@ -240,7 +258,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, error) {
 	if account.Platform == PlatformGrok {
-		targetURL, err := buildGrokChatCompletionsURL(account, s.cfg)
+		targetURL, err := buildGrokChatCompletionsURL(account, s.cfg, s.settingService)
 		if err != nil {
 			return "", fmt.Errorf("invalid grok base_url: %w", err)
 		}
@@ -269,6 +287,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	requestBodyLen int,
 	requestHasTools bool,
 ) (*OpenAIForwardResult, error) {
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriterForAccount(c, resp.Header, account)
 	scanner := s.newUpstreamSSEScanner(resp.Body)
@@ -342,6 +364,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				}
 			}
 		}
+		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 
 		writeLine(line)
 		if line == "" {
@@ -407,16 +430,18 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          true,
-		Duration:        time.Since(startTime),
-		FirstTokenMs:    firstTokenMs,
+		RequestID:                     requestID,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		ReasoningEffort:               reasoningEffort,
+		ServiceTier:                   serviceTier,
+		Stream:                        true,
+		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  firstTokenMs,
 	}, nil
 }
 
@@ -477,11 +502,22 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
+	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
 	}
+	responseModel := gjson.GetBytes(respBody, "model").String()
+	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
+		upstreamRequestID := firstNonEmpty(requestID, resp.Header.Get("xai-request-id"))
+		return nil, newGrokMissingUsageFailoverError(c, account, upstreamRequestID)
+	}
+	respBody = applyOllamaCloudRawChatCompletionsResponse(account, respBody)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -499,15 +535,17 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	_, _ = c.Writer.Write(respBody)
 
 	return &OpenAIForwardResult{
-		RequestID:       requestID,
-		Usage:           usage,
-		Model:           originalModel,
-		BillingModel:    billingModel,
-		UpstreamModel:   upstreamModel,
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:                     requestID,
+		Usage:                         usage,
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		ReasoningEffort:               reasoningEffort,
+		ServiceTier:                   serviceTier,
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
 	}, nil
 }
 
