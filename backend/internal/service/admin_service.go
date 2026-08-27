@@ -209,17 +209,17 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
-	Name             string
-	Description      string
-	Platform         string
-	RateMultiplier   float64
-	IsExclusive      bool
-	SubscriptionType string // standard/subscription
-	// SubscriptionSlots 固定槽位 N（订阅型）；0 = 1（独占）
-	SubscriptionSlots int
-	DailyLimitUSD     *float64 // 日限额 (USD)
-	WeeklyLimitUSD    *float64 // 周限额 (USD)
-	MonthlyLimitUSD   *float64 // 月限额 (USD)
+	Name                      string
+	Description               string
+	Platform                  string
+	RateMultiplier            float64
+	IsExclusive               bool
+	SubscriptionType          string   // standard/subscription
+	DailyLimitUSD             *float64 // 日限额 (USD)
+	WeeklyLimitUSD            *float64 // 周限额 (USD)
+	MonthlyLimitUSD           *float64 // 月限额 (USD)
+	LongContextPricingEnabled bool
+	ModelPricing              []ChannelModelPricing
 	// 图片生成计费配置（仅 antigravity 平台使用）
 	AllowImageGeneration         bool
 	AllowBatchImageGeneration    bool
@@ -280,6 +280,7 @@ type CreateGroupInput struct {
 	ProfitSafetyBuffer   *float64
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
+	SubscriptionSlots        int
 }
 
 type UpdateGroupInput struct {

@@ -22,6 +22,9 @@ func (r *usageBatchLogRepoStub) GetByID(context.Context, int64) (*UsageLog, erro
 	return nil, nil
 }
 func (r *usageBatchLogRepoStub) Delete(context.Context, int64) error { return nil }
+func (r *usageBatchLogRepoStub) GetUserGroupWindowCost(context.Context, int64, int64, time.Time) (float64, error) {
+	return 0, nil
+}
 func (r *usageBatchLogRepoStub) ListByUser(context.Context, int64, pagination.PaginationParams) ([]UsageLog, *pagination.PaginationResult, error) {
 	return nil, nil, nil
 }

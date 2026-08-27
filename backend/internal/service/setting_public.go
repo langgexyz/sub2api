@@ -236,6 +236,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeySubscriptionsEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
+		SettingKeyPluginManagementEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
@@ -361,9 +362,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 
-		SubscriptionsEnabled:  !isFalseSettingValue(settings[SettingKeySubscriptionsEnabled]),
-		ModelPlazaEnabled:     settings[SettingKeyModelPlazaEnabled] == "true",
-		ModelPlazaRequireAuth: settings[SettingKeyModelPlazaRequireAuth] == "true",
+		SubscriptionsEnabled:    !isFalseSettingValue(settings[SettingKeySubscriptionsEnabled]),
+		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
+		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
+		PluginManagementEnabled: settings[SettingKeyPluginManagementEnabled] == "true",
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
 
@@ -608,15 +610,32 @@ type PublicSettingsInjectionPayload struct {
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
 	// that hid the "可用渠道" menu on page refresh.
-	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
-	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
-	SubscriptionsEnabled                 bool `json:"subscriptions_enabled"`
-	ModelPlazaEnabled                    bool `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth                bool `json:"model_plaza_require_auth"`
-	AffiliateEnabled                     bool `json:"affiliate_enabled"`
-	RiskControlEnabled                   bool `json:"risk_control_enabled"`
-	AllowUserViewErrorRequests           bool `json:"allow_user_view_error_requests"`
+	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
+	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
+	// ChannelMonitorHideThroughput is public so the user UI can hide RPM/TPM
+	// without waiting for API redaction alone (defense in depth).
+	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
+	// ChannelMonitorShowQuota gates the user-facing quota/balance display on
+	// monitors; fail-closed (absent/false = hidden). Admin UI always shows it.
+	ChannelMonitorShowQuota             bool   `json:"channel_monitor_show_quota"`
+	AvailableChannelsEnabled            bool   `json:"available_channels_enabled"`
+	SubscriptionsEnabled                bool   `json:"subscriptions_enabled"`
+	ModelPlazaEnabled                   bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth               bool   `json:"model_plaza_require_auth"`
+	PluginManagementEnabled             bool   `json:"plugin_management_enabled"`
+	AffiliateEnabled                    bool   `json:"affiliate_enabled"`
+	RiskControlEnabled                  bool   `json:"risk_control_enabled"`
+	AllowUserViewErrorRequests          bool   `json:"allow_user_view_error_requests"`
+	RegistrationEmailDomainQuotaEnabled bool   `json:"registration_email_domain_quota_enabled"`
+	TencentCaptchaEnabled               bool   `json:"tencent_captcha_enabled"`
+	TencentCaptchaAppID                 string `json:"tencent_captcha_app_id"`
+	TencentCaptchaRegion                string `json:"tencent_captcha_region"`
+	AliyunCaptchaEnabled                bool   `json:"aliyun_captcha_enabled"`
+	AliyunCaptchaSceneID                string `json:"aliyun_captcha_scene_id"`
+	AliyunCaptchaPrefix                 string `json:"aliyun_captcha_prefix"`
+	AliyunCaptchaRegion                 string `json:"aliyun_captcha_region"`
+	CompactHomeEnabled                  bool   `json:"compact_home_enabled"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -688,9 +707,19 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		SubscriptionsEnabled:                 settings.SubscriptionsEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
+		PluginManagementEnabled:              settings.PluginManagementEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,
 		AllowUserViewErrorRequests:           settings.AllowUserViewErrorRequests,
+		RegistrationEmailDomainQuotaEnabled:  settings.RegistrationEmailDomainQuotaEnabled,
+		TencentCaptchaEnabled:                settings.TencentCaptchaEnabled,
+		TencentCaptchaAppID:                  settings.TencentCaptchaAppID,
+		TencentCaptchaRegion:                 settings.TencentCaptchaRegion,
+		AliyunCaptchaEnabled:                 settings.AliyunCaptchaEnabled,
+		AliyunCaptchaSceneID:                 settings.AliyunCaptchaSceneID,
+		AliyunCaptchaPrefix:                  settings.AliyunCaptchaPrefix,
+		AliyunCaptchaRegion:                  settings.AliyunCaptchaRegion,
+		CompactHomeEnabled:                   settings.CompactHomeEnabled,
 	}, nil
 }
 
