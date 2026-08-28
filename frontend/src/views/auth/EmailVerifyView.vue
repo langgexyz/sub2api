@@ -263,6 +263,13 @@ const hasRegisterData = ref<boolean>(false)
 // Public settings
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
+const tencentCaptchaEnabled = ref<boolean>(false)
+const tencentCaptchaAppId = ref<string>('')
+const tencentCaptchaRegion = ref<string>('cn')
+const aliyunCaptchaEnabled = ref<boolean>(false)
+const aliyunCaptchaSceneId = ref<string>('')
+const aliyunCaptchaPrefix = ref<string>('')
+const aliyunCaptchaRegion = ref<string>('cn')
 const siteName = ref<string>('CCDirect')
 const registrationEmailSuffixWhitelist = ref<string[]>([])
 // 域名限量注册开关：开启时非白名单域名可注册 1 个账户（由后端判定），前端不做白名单预检。

@@ -673,6 +673,8 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UsageProgressBar from '@/components/account/UsageProgressBar.vue'
+import { getRemainingExpiryDuration } from '@/utils/subscriptionQuota'
+import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 const { t } = useI18n()
 const appStore = useAppStore()
