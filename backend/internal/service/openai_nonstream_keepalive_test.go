@@ -47,7 +47,7 @@ func TestHandleNonStreamKeepalivePassthrough_AggregatesWithKeepalive(t *testing.
 		_, _ = pw.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"hi\"}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":5}}}\n\n"))
 	}()
 
-	result, err := svc.handleNonStreamKeepalivePassthrough(c.Request.Context(), resp, c, "model", "model")
+	result, err := svc.handleNonStreamKeepalivePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, "model", "model")
 	_ = pr.Close()
 	require.NoError(t, err)
 	require.NotNil(t, result)
