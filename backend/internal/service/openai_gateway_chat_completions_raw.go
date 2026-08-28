@@ -344,6 +344,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
+				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				// 工具参数退化：在写给客户端【之前】判定，命中即停止透传。
 				if reason := observeRawChatToolArgs(toolArgsGuard, payload); reason != "" {
 					logger.L().Warn("openai chat_completions raw: tool args degeneration",

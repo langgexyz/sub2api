@@ -160,7 +160,7 @@ type CreateGroupRequest struct {
 	ReasoningEffortMappings []service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 	// 从指定分组复制账号（创建后自动绑定）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
-	SubscriptionSlots int                `json:"subscription_slots"`
+	SubscriptionSlots        int     `json:"subscription_slots"`
 }
 
 // UpdateGroupRequest represents update group request

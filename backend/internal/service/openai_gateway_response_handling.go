@@ -904,6 +904,16 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			// Grok: short cool + account failover when no client-visible bytes
+			// were committed yet (pre-commit). After output started we keep the
+			// legacy stream_timeout path so partial SSE is not dual-written.
+			if account != nil && account.Platform == PlatformGrok {
+				s.tempUnscheduleGrok(ctx, account, grokStreamIdleCooldown, "grok stream idle timeout")
+				if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+					_ = resp.Body.Close()
+					return resultWithUsage(), grokStreamIdleFailoverError(account, streamInterval)
+				}
+			}
 			sendErrorEvent("stream_timeout", "")
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
 
